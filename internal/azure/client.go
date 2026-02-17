@@ -1,0 +1,242 @@
+package azure
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"sync"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/google/uuid"
+	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
+	"github.com/microsoftgraph/msgraph-sdk-go/groups"
+	"github.com/microsoftgraph/msgraph-sdk-go/models"
+)
+
+// Client handles Azure AD operations
+type Client struct {
+	graphClient       *msgraphsdk.GraphServiceClient
+	servicePrincipals []string
+	appRoleID         string // The app role ID to assign groups to
+	mu                sync.RWMutex
+	groupCache        map[string]models.Groupable // Cache groups by name
+}
+
+// NewClient creates a new Azure AD client using DefaultAzureCredential
+func NewClient(ctx context.Context) (*Client, error) {
+	// Get service principals from environment variable
+	spEnv := os.Getenv("AZURE_SERVICE_PRINCIPALS")
+	if spEnv == "" {
+		return nil, fmt.Errorf("AZURE_SERVICE_PRINCIPALS environment variable not set")
+	}
+	servicePrincipals := strings.Split(spEnv, ",")
+	for i, sp := range servicePrincipals {
+		servicePrincipals[i] = strings.TrimSpace(sp)
+	}
+
+	// Get app role ID from environment variable (required)
+	appRoleID := os.Getenv("AZURE_APP_ROLE_ID")
+	if appRoleID == "" {
+		return nil, fmt.Errorf("AZURE_APP_ROLE_ID environment variable not set")
+	}
+
+	// Create credential
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create credential: %w", err)
+	}
+
+	// Create Graph client
+	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(cred, []string{"https://graph.microsoft.com/.default"})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create graph client: %w", err)
+	}
+
+	return &Client{
+		graphClient:       graphClient,
+		servicePrincipals: servicePrincipals,
+		appRoleID:         appRoleID,
+		groupCache:        make(map[string]models.Groupable),
+	}, nil
+}
+
+// GetGroupByName retrieves a group by its displayName
+func (c *Client) GetGroupByName(ctx context.Context, groupName string) (models.Groupable, error) {
+	c.mu.RLock()
+	if group, ok := c.groupCache[groupName]; ok {
+		c.mu.RUnlock()
+		return group, nil
+	}
+	c.mu.RUnlock()
+
+	// Search by displayName
+	filter := fmt.Sprintf("displayName eq '%s'", groupName)
+	requestConfig := &groups.GroupsRequestBuilderGetRequestConfiguration{
+		QueryParameters: &groups.GroupsRequestBuilderGetQueryParameters{
+			Filter: &filter,
+			Select: []string{"id", "displayName"},
+		},
+	}
+
+	result, err := c.graphClient.Groups().Get(ctx, requestConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for group %s by displayName: %w", groupName, err)
+	}
+
+	groupList := result.GetValue()
+	if len(groupList) == 0 {
+		return nil, fmt.Errorf("group with name %s not found", groupName)
+	}
+
+	group := groupList[0]
+
+	// Cache the group
+	c.mu.Lock()
+	c.groupCache[groupName] = group
+	c.mu.Unlock()
+
+	return group, nil
+}
+
+// AssignGroupToServicePrincipals assigns a group to all configured service principals
+func (c *Client) AssignGroupToServicePrincipals(ctx context.Context, groupID string) error {
+	var errs []error
+
+	for _, spID := range c.servicePrincipals {
+		if err := c.assignGroupToServicePrincipal(ctx, spID, groupID); err != nil {
+			errs = append(errs, fmt.Errorf("failed to assign group %s to SP %s: %w", groupID, spID, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors assigning group: %v", errs)
+	}
+
+	return nil
+}
+
+// RemoveGroupFromServicePrincipals removes a group assignment from all configured service principals
+func (c *Client) RemoveGroupFromServicePrincipals(ctx context.Context, groupID string) error {
+	var errs []error
+
+	for _, spID := range c.servicePrincipals {
+		if err := c.removeGroupFromServicePrincipal(ctx, spID, groupID); err != nil {
+			errs = append(errs, fmt.Errorf("failed to remove group %s from SP %s: %w", groupID, spID, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors removing group: %v", errs)
+	}
+
+	return nil
+}
+
+// removeGroupFromServicePrincipal removes a group assignment from a service principal
+func (c *Client) removeGroupFromServicePrincipal(ctx context.Context, spID, groupID string) error {
+	// Get all assignments to find the one we need to delete
+	result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list app role assignments: %w", err)
+	}
+
+	// Find the assignment for this group
+	assignments := result.GetValue()
+	var assignmentID *string
+	for _, assignment := range assignments {
+		principalID := assignment.GetPrincipalId()
+		if principalID != nil && principalID.String() == groupID {
+			assignmentID = assignment.GetId()
+			break
+		}
+	}
+
+	if assignmentID == nil {
+		// Assignment doesn't exist, nothing to do
+		return nil
+	}
+
+	// Delete the assignment
+	err = c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().ByAppRoleAssignmentId(*assignmentID).Delete(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to delete app role assignment: %w", err)
+	}
+
+	return nil
+}
+
+// assignGroupToServicePrincipal assigns a single group to a service principal
+// Note: The controller's app registration must be an owner of the target service principal's
+// app registration for this to work with Application.ReadWrite.OwnedBy permission
+func (c *Client) assignGroupToServicePrincipal(ctx context.Context, spID, groupID string) error {
+	// Check if assignment already exists
+	exists, err := c.isGroupAssigned(ctx, spID, groupID)
+	if err != nil {
+		return fmt.Errorf("failed to check existing assignment: %w", err)
+	}
+	if exists {
+		return nil // Already assigned
+	}
+
+	// Create app role assignment
+	// This creates a group membership assignment to the service principal
+	requestBody := models.NewAppRoleAssignment()
+
+	principalUUID, err := uuid.Parse(groupID)
+	if err != nil {
+		return fmt.Errorf("failed to parse group ID as UUID: %w", err)
+	}
+	requestBody.SetPrincipalId(&principalUUID)
+
+	resourceUUID, err := uuid.Parse(spID)
+	if err != nil {
+		return fmt.Errorf("failed to parse service principal ID as UUID: %w", err)
+	}
+	requestBody.SetResourceId(&resourceUUID)
+
+	// Use configured app role ID
+	appRoleUUID, err := uuid.Parse(c.appRoleID)
+	if err != nil {
+		return fmt.Errorf("failed to parse app role ID as UUID: %w", err)
+	}
+	requestBody.SetAppRoleId(&appRoleUUID)
+
+	_, err = c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Post(ctx, requestBody, nil)
+	if err != nil {
+		// Check if error is because assignment already exists
+		if strings.Contains(err.Error(), "Permission being assigned already exists") {
+			return nil
+		}
+		return fmt.Errorf("failed to create app role assignment: %w", err)
+	}
+
+	return nil
+}
+
+// isGroupAssigned checks if a group is already assigned to a service principal
+func (c *Client) isGroupAssigned(ctx context.Context, spID, groupID string) (bool, error) {
+	// Get all assignments (filtering is not supported on this collection)
+	result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if any assignment matches our groupID
+	assignments := result.GetValue()
+	for _, assignment := range assignments {
+		principalID := assignment.GetPrincipalId()
+		if principalID != nil && principalID.String() == groupID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// ClearCache clears the group cache
+func (c *Client) ClearCache() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.groupCache = make(map[string]models.Groupable)
+}
