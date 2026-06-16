@@ -11,7 +11,7 @@ Unfortunately, the Kubernetes API server does not support resolving these distri
 This controller works around this limitation by:
 
 1. Monitoring all RoleBindings and ClusterRoleBindings in your cluster
-2. Ensuring each referenced group exists in Azure AD (by sAMAccountName for hybrid environments, or displayName for cloud-only groups)
+2. Ensuring each referenced group exists in Azure AD by group Object ID
 3. Explicitly assigning those groups to your Azure AD Service Principal(s)
 4. This forces Azure AD to filter the groups in the token to only include relevant groups, keeping the count below 200
 
@@ -20,10 +20,12 @@ This controller works around this limitation by:
 The controller operates as follows:
 
 1. **Watches Kubernetes RBAC**: Monitors all `RoleBinding` and `ClusterRoleBinding` resources across all namespaces
-2. **Extracts Groups**: Identifies all `Group` subjects referenced in these bindings
-3. **Validates in Azure**: Looks up each group in Azure AD by its `displayName`
+2. **Extracts Group IDs**: Reads each `Group` subject `name` as an Azure group Object ID
+3. **Validates in Azure**: Looks up each group in Azure AD by that Object ID
 4. **Assigns to Service Principals**: Creates app role assignments between the groups and your configured Azure AD Service Principal(s)
 5. **Result**: Azure AD now knows which groups are relevant for your Kubernetes authentication and will include only those in the JWT token
+
+For detailed reconciliation lifecycle behavior (finalizers, conflict handling, cleanup guarantees, and RBAC escalation semantics), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Prerequisites
 
@@ -281,8 +283,8 @@ The controller exposes metrics on port 8080 at `/metrics` in Prometheus format. 
 ### Groups Not Being Assigned
 
 1. Check controller logs: `kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner`
-2. Verify the group exists in Azure AD with the correct `displayName`
-3. Ensure the group name in your RoleBinding/ClusterRoleBinding matches the Azure AD group `displayName` exactly
+2. Verify the referenced Azure group Object ID exists: `az ad group show --group <GROUP_OBJECT_ID>`
+3. Ensure each `RoleBinding`/`ClusterRoleBinding` `subjects[].name` for `kind: Group` is the Azure group Object ID (UUID), not display name
 4. Ensure the controller's app registration is an owner of the cluster auth app registration(s)
 5. Ensure the controller's identity has the required Graph API permissions (`Application.ReadWrite.OwnedBy` and `Group.Read.All`)
 6. Verify the service principal Object IDs are correct (not client IDs)
@@ -314,6 +316,10 @@ The controller exposes metrics on port 8080 at `/metrics` in Prometheus format. 
 ## Testing
 
 For a complete testing guide including setting up Azure AD app registrations, configuring Minikube with OIDC authentication, and verifying the controller functionality, see [TESTING.md](TESTING.md).
+
+## Terraform Limited-Privilege Consent
+
+To let Terraform grant only the required Microsoft Graph application permissions for this controller (without making Terraform a tenant admin), see [docs/TERRAFORM_LIMITED_CONSENT.md](docs/TERRAFORM_LIMITED_CONSENT.md).
 
 ## License
 

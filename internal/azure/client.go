@@ -10,7 +10,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/google/uuid"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
-	"github.com/microsoftgraph/msgraph-sdk-go/groups"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 )
 
@@ -20,7 +19,7 @@ type Client struct {
 	servicePrincipals []string
 	appRoleID         string // The app role ID to assign groups to
 	mu                sync.RWMutex
-	groupCache        map[string]models.Groupable // Cache groups by name
+	groupCache        map[string]models.Groupable // Cache groups by object ID
 }
 
 // NewClient creates a new Azure AD client using DefaultAzureCredential
@@ -61,39 +60,27 @@ func NewClient(ctx context.Context) (*Client, error) {
 	}, nil
 }
 
-// GetGroupByName retrieves a group by its displayName
-func (c *Client) GetGroupByName(ctx context.Context, groupName string) (models.Groupable, error) {
+// GetGroupByID retrieves a group by its Azure object ID.
+func (c *Client) GetGroupByID(ctx context.Context, groupID string) (models.Groupable, error) {
 	c.mu.RLock()
-	if group, ok := c.groupCache[groupName]; ok {
+	if group, ok := c.groupCache[groupID]; ok {
 		c.mu.RUnlock()
 		return group, nil
 	}
 	c.mu.RUnlock()
 
-	// Search by displayName
-	filter := fmt.Sprintf("displayName eq '%s'", groupName)
-	requestConfig := &groups.GroupsRequestBuilderGetRequestConfiguration{
-		QueryParameters: &groups.GroupsRequestBuilderGetQueryParameters{
-			Filter: &filter,
-			Select: []string{"id", "displayName"},
-		},
+	if _, err := uuid.Parse(groupID); err != nil {
+		return nil, fmt.Errorf("invalid group object ID %q: %w", groupID, err)
 	}
 
-	result, err := c.graphClient.Groups().Get(ctx, requestConfig)
+	group, err := c.graphClient.Groups().ByGroupId(groupID).Get(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search for group %s by displayName: %w", groupName, err)
+		return nil, fmt.Errorf("failed to get group by object ID %s: %w", groupID, err)
 	}
-
-	groupList := result.GetValue()
-	if len(groupList) == 0 {
-		return nil, fmt.Errorf("group with name %s not found", groupName)
-	}
-
-	group := groupList[0]
 
 	// Cache the group
 	c.mu.Lock()
-	c.groupCache[groupName] = group
+	c.groupCache[groupID] = group
 	c.mu.Unlock()
 
 	return group, nil
@@ -204,8 +191,8 @@ func (c *Client) assignGroupToServicePrincipal(ctx context.Context, spID, groupI
 
 	_, err = c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Post(ctx, requestBody, nil)
 	if err != nil {
-		// Check if error is because assignment already exists
-		if strings.Contains(err.Error(), "Permission being assigned already exists") {
+		// Treat duplicate assignment responses as success for idempotency.
+		if isAlreadyAssignedError(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to create app role assignment: %w", err)
@@ -239,4 +226,14 @@ func (c *Client) ClearCache() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.groupCache = make(map[string]models.Groupable)
+}
+
+func isAlreadyAssignedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "permission being assigned already exists") ||
+		strings.Contains(errMsg, "entitlementgrant entry already exists")
 }

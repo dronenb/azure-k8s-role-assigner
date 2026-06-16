@@ -22,6 +22,7 @@ kind: ClusterRole
 metadata:
   name: azure-k8s-role-assigner
 rules:
+  # Read-only access to watch and inspect bindings — safe, no privilege escalation risk.
   - apiGroups:
       - rbac.authorization.k8s.io
     resources:
@@ -31,22 +32,7 @@ rules:
       - get
       - list
       - watch
-      - update
       - patch
-  - apiGroups:
-      - rbac.authorization.k8s.io
-    resources:
-      - rolebindings/finalizers
-      - clusterrolebindings/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - rbac.authorization.k8s.io
-    resources:
-      - rolebindings/status
-      - clusterrolebindings/status
-    verbs:
-      - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -135,7 +121,7 @@ spec:
           image: ghcr.io/dronenb/azure-k8s-role-assigner:latest
           imagePullPolicy: Always
           command:
-            - /manager
+            - /ko-app/cmd
           args:
             - --leader-elect
           env:

@@ -1,0 +1,8 @@
+cluster_name         = "dev01"
+name_prefix          = "azure-k8s-role-assigner"
+location             = "eastus"
+create_oidc_storage  = false
+oidc_issuer_url      = ""
+create_test_groups   = true
+service_account_namespace = "azure-k8s-role-assigner"
+service_account_name      = "azure-k8s-role-assigner"

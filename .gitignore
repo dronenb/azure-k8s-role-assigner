@@ -32,3 +32,19 @@ go.work.sum
 .vscode/
 
 bin/
+
+# Terraform/OpenTofu
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars
+
+# ko image tarballs
+*.tar
+
+# E2E local state (signing key, etc.)
+.e2e/
+.task/
+
+*.pyc
