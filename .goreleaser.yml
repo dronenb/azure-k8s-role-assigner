@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: azure-k8s-role-assigner
+
+builds:
+  - id: manager
+    main: ./cmd/main.go
+    binary: manager
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+kos:
+  - id: manager
+    main: ./cmd
+    repositories:
+      - ghcr.io/dronenb/azure-k8s-role-assigner
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    tags:
+      - "{{.Version}}"
+      - latest
+    bare: true
+    preserve_import_paths: false
+    sbom: none
+    creation_time: "{{.CommitTimestamp}}"
+    labels:
+      org.opencontainers.image.title: azure-k8s-role-assigner
+      org.opencontainers.image.description: Kubernetes controller that syncs RBAC bindings to Azure Entra ID app role assignments
+      org.opencontainers.image.url: https://github.com/dronenb/azure-k8s-role-assigner
+      org.opencontainers.image.documentation: https://github.com/dronenb/azure-k8s-role-assigner
+      org.opencontainers.image.source: https://github.com/dronenb/azure-k8s-role-assigner
+      org.opencontainers.image.version: "{{.Version}}"
+      org.opencontainers.image.revision: "{{.FullCommit}}"
+      org.opencontainers.image.authors: dronenb
+      org.opencontainers.image.vendor: dronenb
+      org.opencontainers.image.licenses: MIT
+      org.opencontainers.image.base.name: registry.access.redhat.com/hi/static
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
+docker_signs:
+  - artifacts: manifests
+
+archives:
+  - formats:
+      - binary
+
+changelog:
+  disable: true

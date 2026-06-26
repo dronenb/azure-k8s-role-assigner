@@ -1,0 +1,160 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "**/*.go"
+      - "config/**"
+      - "e2e/**"
+      - ".goreleaser.yml"
+      - ".ko.yaml"
+      - "Taskfile.yml"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/e2e.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: End-to-End (kind + Entra)
+    if: github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      KIND_EXPERIMENTAL_PROVIDER: podman
+
+    steps:
+      - name: Checkout
+        # Check latest: TAG=$(gh api repos/actions/checkout/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/checkout/git/ref/tags/$TAG --jq .object.sha); echo "actions/checkout@$SHA # $TAG"
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        # Check latest: TAG=$(gh api repos/actions/setup-go/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/setup-go/git/ref/tags/$TAG --jq .object.sha); echo "actions/setup-go@$SHA # $TAG"
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install Task
+        # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
+        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+        with:
+          version: 3.x
+
+      - name: Install ko
+        # Check latest: gh api repos/ko-build/ko/releases/latest --jq .tag_name
+        run: |
+          curl -sSfL https://github.com/ko-build/ko/releases/download/v0.18.1/ko_0.18.1_Linux_x86_64.tar.gz | tar xzf - -C /usr/local/bin ko
+
+      - name: Install kind
+        # Check latest: gh api repos/kubernetes-sigs/kind/releases/latest --jq .tag_name
+        run: |
+          curl -sSfLo ./kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Set up OpenTofu
+        # Check latest: TAG=$(gh api repos/opentofu/setup-opentofu/releases/latest --jq .tag_name); SHA=$(gh api repos/opentofu/setup-opentofu/git/ref/tags/$TAG --jq .object.sha); echo "opentofu/setup-opentofu@$SHA # $TAG"
+        uses: opentofu/setup-opentofu@847eaa4afeb791b06daa46e8eafa8b1b68d7cfb4 # v2.0.1
+
+      - name: Login to Azure
+        # Check latest: TAG=$(gh api repos/azure/login/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/login/git/ref/tags/$TAG --jq .object.sha); echo "azure/login@$SHA # $TAG"
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up kubectl
+        # Check latest: TAG=$(gh api repos/azure/setup-kubectl/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/setup-kubectl/git/ref/tags/$TAG --jq .object.sha); echo "azure/setup-kubectl@$SHA # $TAG"
+        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+
+      - name: Download signing key
+        env:
+          KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+          SIGNING_KEY_SECRET_NAME: ${{ vars.SIGNING_KEY_SECRET_NAME }}
+        run: task e2e:download-key
+
+      - name: Provision Entra resources
+        env:
+          TF_VAR_name_suffix: gha-${{ github.run_id }}-${{ github.run_attempt }}
+          OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
+          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
+          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
+        run: task e2e:infra-up
+
+      - name: Create kind cluster
+        env:
+          OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
+        run: task e2e:cluster-up
+
+      - name: Verify cluster
+        run: kubectl cluster-info && kubectl get nodes -o wide
+
+      - name: Build and load e2e image
+        run: |
+          task e2e:build-image
+          task e2e:load-image
+
+      - name: Deploy controller
+        run: task e2e:deploy
+
+      - name: Create RBAC bindings
+        run: task e2e:create-rbac
+
+      - name: Install kubelogin
+        # Check latest action: TAG=$(gh api repos/azure/use-kubelogin/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/use-kubelogin/git/ref/tags/$TAG --jq .object.sha); echo "azure/use-kubelogin@$SHA # $TAG"
+        # Check latest tool:   gh api repos/Azure/kubelogin/releases/latest --jq .tag_name
+        uses: azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29 # v1.3
+        with:
+          kubelogin-version: "v0.2.18"
+
+      - name: Download e2e test user password
+        env:
+          KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+          E2E_TEST_USER_PASSWORD_SECRET_NAME: ${{ vars.E2E_TEST_USER_PASSWORD_SECRET_NAME }}
+        run: |
+          set -euo pipefail
+          E2E_TEST_USER_PASSWORD="$(az keyvault secret show \
+            --vault-name "$KEY_VAULT_NAME" \
+            --name "$E2E_TEST_USER_PASSWORD_SECRET_NAME" \
+            --query value -o tsv)"
+          echo "::add-mask::$E2E_TEST_USER_PASSWORD"
+          echo "E2E_TEST_USER_PASSWORD=$E2E_TEST_USER_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Verify token group claims
+        env:
+          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
+          E2E_TEST_USER_PASSWORD: ${{ env.E2E_TEST_USER_PASSWORD }}
+          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
+          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+        run: task e2e:verify
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          set +e
+          kubectl get all -A
+          kubectl get rolebinding,clusterrolebinding -A
+          kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=200
+
+      - name: Cleanup Kubernetes resources
+        if: always()
+        run: task e2e:cleanup
+
+      - name: Destroy Entra resources
+        if: always()
+        env:
+          OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
+          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
+        run: task e2e:infra-down

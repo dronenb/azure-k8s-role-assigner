@@ -1,0 +1,607 @@
+version: "3"
+
+vars:
+  IMG: '{{.IMG | default "ghcr.io/dronenb/azure-k8s-role-assigner"}}'
+  AZURE_SERVICE_PRINCIPALS: "{{.AZURE_SERVICE_PRINCIPALS}}"
+  AZURE_TENANT_ID: "{{.AZURE_TENANT_ID}}"
+  AZURE_CLIENT_ID: "{{.AZURE_CLIENT_ID}}"
+  AZURE_CLIENT_SECRET: "{{.AZURE_CLIENT_SECRET}}"
+  AZURE_APP_ROLE_ID: "{{.AZURE_APP_ROLE_ID}}"
+  E2E_IMAGE: '{{.E2E_IMAGE | default "e2e.local/azure-k8s-role-assigner:e2e"}}'
+  E2E_NS: '{{.E2E_NS | default "test-e2e"}}'
+  KIND_CLUSTER_NAME: '{{.KIND_CLUSTER_NAME | default "e2e"}}'
+  KIND_LOCAL_CLUSTER_NAME: '{{.KIND_LOCAL_CLUSTER_NAME | default "local"}}'
+  KIND_LOCAL_IMAGE: '{{.KIND_LOCAL_IMAGE | default "localhost/azure-k8s-role-assigner:dev"}}'
+  KIND_LOCAL_TAG: '{{.KIND_LOCAL_TAG | default "dev"}}'
+  KIND_LOCAL_IMG_TARBALL: '{{.KIND_LOCAL_IMG_TARBALL | default "kind-image.tar"}}'
+  OIDC_ISSUER_URL: "{{.OIDC_ISSUER_URL}}"
+  KEY_VAULT_NAME: "{{.KEY_VAULT_NAME}}"
+  SIGNING_KEY_SECRET_NAME: '{{.SIGNING_KEY_SECRET_NAME | default "sa-signing-key"}}'
+  E2E_TEST_USER_PASSWORD_SECRET_NAME: '{{.E2E_TEST_USER_PASSWORD_SECRET_NAME | default "e2e-test-user-password"}}'
+  TEST_GROUP_CRB_ID: "{{.TEST_GROUP_CRB_ID}}"
+  TEST_GROUP_RB_ID: "{{.TEST_GROUP_RB_ID}}"
+  E2E_TEST_USER_UPN: "{{.E2E_TEST_USER_UPN}}"
+  E2E_TEST_USER_PASSWORD: "{{.E2E_TEST_USER_PASSWORD}}"
+  SA_KEY_DIR: '{{.SA_KEY_DIR | default ".e2e"}}'
+  SA_KEY_FILE: '{{.SA_KEY_DIR | default ".e2e"}}/sa-signing.key'
+  E2E_TEST_USER_PASSWORD_FILE: '{{.SA_KEY_DIR | default ".e2e"}}/e2e-test-user-password'
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  # --- Development ---
+
+  fmt:
+    desc: Run go fmt against code.
+    sources:
+      - ./**/*.go
+      - go.mod
+      - go.sum
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet against code.
+    sources:
+      - ./**/*.go
+      - go.mod
+      - go.sum
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run tests.
+    deps: [fmt, vet]
+    sources:
+      - ./**/*.go
+      - go.mod
+      - go.sum
+    generates:
+      - cover.out
+    cmds:
+      - go test ./... -coverprofile cover.out
+
+  build:
+    desc: Build manager binary.
+    deps: [fmt, vet]
+    sources:
+      - ./**/*.go
+      - go.mod
+      - go.sum
+    generates:
+      - bin/manager
+    cmds:
+      - go build -o bin/manager cmd/main.go
+
+  run:
+    desc: Run a controller from your host.
+    deps: [fmt, vet]
+    cmds:
+      - go run ./cmd/main.go
+
+  # --- Image ---
+
+  build-image:
+    desc: Build container image as OCI tarball using ko (no daemon required).
+    sources:
+      - ./**/*.go
+      - go.mod
+      - go.sum
+      - .ko.yaml
+    generates:
+      - '{{.IMG_TARBALL | default "image.tar"}}'
+    cmds:
+      - ko build --bare --tags={{.TAG | default "latest"}} --push=false --tarball={{.IMG_TARBALL | default "image.tar"}} --platform={{.PLATFORM | default (printf "linux/%s" ARCH)}} ./cmd
+    env:
+      KO_DOCKER_REPO: "{{.IMG}}"
+
+  # --- Deployment ---
+
+  deploy:
+    desc: Deploy controller to the K8s cluster specified in ~/.kube/config.
+    cmds:
+      - kubectl apply -f config/deployment.yaml
+
+  undeploy:
+    desc: Undeploy controller from the K8s cluster specified in ~/.kube/config.
+    cmds:
+      - kubectl delete -f config/deployment.yaml
+
+  # --- Local kind Workflow ---
+
+  kind:create-internal:
+    desc: Internal task to create a kind cluster with optional config.
+    vars:
+      KIND_CLUSTER_NAME: "{{.KIND_CLUSTER_NAME | default .KIND_LOCAL_CLUSTER_NAME}}"
+      KIND_CONFIG_FILE: '{{.KIND_CONFIG_FILE | default ""}}'
+    cmds:
+      - |
+        set -euo pipefail
+        if [ "$(uname -s)" != "Linux" ]; then
+          if ! podman machine list --format '{{`{{.Name}}`}}' 2>/dev/null | grep -q .; then
+            echo "No podman machine found, initializing..."
+            podman machine init
+          fi
+          if ! podman machine list --format '{{`{{.Running}}`}}' 2>/dev/null | grep -qi true; then
+            echo "Starting podman machine..."
+            podman machine start
+          fi
+        fi
+      - |
+        set -euo pipefail
+        if kind get clusters 2>/dev/null | grep -q '^{{.KIND_CLUSTER_NAME}}$'; then
+          echo "kind cluster '{{.KIND_CLUSTER_NAME}}' already exists"
+          exit 0
+        fi
+
+        KIND_CREATE_ARGS=(--name {{.KIND_CLUSTER_NAME}} --wait 5m)
+        if [ -n "{{.KIND_CONFIG_FILE}}" ]; then
+          KIND_CREATE_ARGS+=(--config {{.KIND_CONFIG_FILE}})
+        fi
+
+        KIND_EXPERIMENTAL_PROVIDER=podman kind create cluster "${KIND_CREATE_ARGS[@]}"
+      - kubectl config use-context kind-{{.KIND_CLUSTER_NAME}}
+      - kubectl cluster-info
+    status:
+      - kind get clusters 2>/dev/null | grep -q '^{{.KIND_CLUSTER_NAME}}$'
+
+  kind:delete-internal:
+    desc: Internal task to delete a kind cluster.
+    vars:
+      KIND_CLUSTER_NAME: "{{.KIND_CLUSTER_NAME | default .KIND_LOCAL_CLUSTER_NAME}}"
+    cmds:
+      - kind delete cluster --name {{.KIND_CLUSTER_NAME}}
+
+  kind:up:
+    desc: Create local kind cluster for day-to-day development.
+    cmds:
+      - task: kind:create-internal
+        vars:
+          KIND_CLUSTER_NAME: "{{.KIND_LOCAL_CLUSTER_NAME}}"
+    status:
+      - kind get clusters 2>/dev/null | grep -q '^{{.KIND_LOCAL_CLUSTER_NAME}}$'
+
+  kind:down:
+    desc: Delete local kind development cluster.
+    cmds:
+      - task: kind:delete-internal
+        vars:
+          KIND_CLUSTER_NAME: "{{.KIND_LOCAL_CLUSTER_NAME}}"
+
+  kind:build-image:
+    desc: Build local controller image tarball for kind.
+    cmds:
+      - task: build-image
+        vars:
+          IMG: localhost/azure-k8s-role-assigner
+          TAG: "{{.KIND_LOCAL_TAG}}"
+          IMG_TARBALL: "{{.KIND_LOCAL_IMG_TARBALL}}"
+
+  kind:load-image:
+    desc: Load local controller image tarball into kind.
+    preconditions:
+      - test -f {{.KIND_LOCAL_IMG_TARBALL}}
+    cmds:
+      - kind load image-archive {{.KIND_LOCAL_IMG_TARBALL}} --name {{.KIND_LOCAL_CLUSTER_NAME}}
+
+  kind:deploy:
+    desc: Deploy controller to local kind cluster with explicit Azure env vars.
+    preconditions:
+      - sh: '[ -n "{{.AZURE_SERVICE_PRINCIPALS}}" ]'
+        msg: "AZURE_SERVICE_PRINCIPALS must be set"
+      - sh: '[ -n "{{.AZURE_TENANT_ID}}" ]'
+        msg: "AZURE_TENANT_ID must be set"
+      - sh: '[ -n "{{.AZURE_CLIENT_ID}}" ]'
+        msg: "AZURE_CLIENT_ID must be set"
+      - sh: '[ -n "{{.AZURE_APP_ROLE_ID}}" ]'
+        msg: "AZURE_APP_ROLE_ID must be set (export AZURE_APP_ROLE_ID=$(cd e2e/tofu && tofu output -raw cluster_app_role_id))"
+    cmds:
+      - kubectl config use-context kind-{{.KIND_LOCAL_CLUSTER_NAME}}
+      - kubectl apply -f config/deployment.yaml
+      - |
+        # Single atomic patch: image + imagePullPolicy + all env vars together.
+        # Using one patch avoids intermediate ReplicaSets with imagePullPolicy:Always
+        # that try to pull localhost/ from the network and cause ImagePullBackOff.
+        kubectl patch deployment azure-k8s-role-assigner \
+          -n azure-k8s-role-assigner \
+          --type strategic \
+          --patch '{"spec":{"replicas":1,"template":{"spec":{"containers":[{"name":"manager","image":"{{.KIND_LOCAL_IMAGE}}","imagePullPolicy":"Never","env":[{"name":"AZURE_SERVICE_PRINCIPALS","value":"{{.AZURE_SERVICE_PRINCIPALS}}"},{"name":"AZURE_TENANT_ID","value":"{{.AZURE_TENANT_ID}}"},{"name":"AZURE_CLIENT_ID","value":"{{.AZURE_CLIENT_ID}}"},{"name":"AZURE_APP_ROLE_ID","value":"{{.AZURE_APP_ROLE_ID}}"},{"name":"AZURE_TOKEN_CREDENTIALS","value":"prod"}]}]}}}}'
+      - |
+        set -euo pipefail
+        if [ -n "{{.AZURE_CLIENT_SECRET}}" ]; then
+          kubectl -n azure-k8s-role-assigner set env deployment/azure-k8s-role-assigner AZURE_CLIENT_SECRET="{{.AZURE_CLIENT_SECRET}}"
+        else
+          # Remove if previously set; no-op (no rollout) if absent
+          kubectl -n azure-k8s-role-assigner set env deployment/azure-k8s-role-assigner AZURE_CLIENT_SECRET-
+        fi
+      - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
+
+  kind:logs:
+    desc: Tail controller logs from local kind deployment.
+    cmds:
+      - kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner -f
+
+  kind:run:
+    desc: End-to-end local kind workflow (up, build, load, deploy).
+    cmds:
+      - task: kind:up
+      - task: kind:build-image
+      - task: kind:load-image
+      - task: kind:deploy
+
+  # --- E2E Testing ---
+
+  e2e:
+    desc: Run full end-to-end test suite (kind + Entra ID).
+    cmds:
+      - task: e2e:infra-up
+      - task: e2e:cluster-up
+      - task: e2e:build-image
+      - task: e2e:load-image
+      - task: e2e:deploy
+      - task: e2e:create-rbac
+      - task: e2e:verify
+
+  e2e:ci:
+    desc: Run e2e suite in CI (downloads stable key from Key Vault first).
+    cmds:
+      - task: e2e:download-key
+      - task: e2e:download-user-password
+      - task: e2e:infra-up
+      - task: e2e:cluster-up
+      - task: e2e:build-image
+      - task: e2e:load-image
+      - task: e2e:deploy
+      - task: e2e:create-rbac
+      - task: e2e:verify
+
+  e2e:download-key:
+    desc: Download the stable SA signing key from Key Vault.
+    preconditions:
+      - sh: '[ -n "{{.KEY_VAULT_NAME}}" ]'
+        msg: "KEY_VAULT_NAME must be set (from tofu/ outputs)"
+      - sh: '[ -n "{{.SIGNING_KEY_SECRET_NAME}}" ]'
+        msg: "SIGNING_KEY_SECRET_NAME must be set (from tofu/ outputs)"
+    cmds:
+      - |
+        set -euo pipefail
+        mkdir -p "{{.SA_KEY_DIR}}"
+        az keyvault secret show \
+          --vault-name "{{.KEY_VAULT_NAME}}" \
+          --name "{{.SIGNING_KEY_SECRET_NAME}}" \
+          --query value -o tsv > "{{.SA_KEY_FILE}}"
+        chmod 600 "{{.SA_KEY_FILE}}"
+        echo "Signing key written to {{.SA_KEY_FILE}}"
+    status:
+      - test -f "{{.SA_KEY_FILE}}"
+
+  e2e:download-user-password:
+    desc: Download the static e2e test user password from Key Vault.
+    preconditions:
+      - sh: '[ -n "{{.KEY_VAULT_NAME}}" ]'
+        msg: "KEY_VAULT_NAME must be set (from tofu/ outputs)"
+      - sh: '[ -n "{{.E2E_TEST_USER_PASSWORD_SECRET_NAME}}" ]'
+        msg: "E2E_TEST_USER_PASSWORD_SECRET_NAME must be set (from tofu/ outputs)"
+    cmds:
+      - |
+        set -euo pipefail
+        mkdir -p "{{.SA_KEY_DIR}}"
+        az keyvault secret show \
+          --vault-name "{{.KEY_VAULT_NAME}}" \
+          --name "{{.E2E_TEST_USER_PASSWORD_SECRET_NAME}}" \
+          --query value -o tsv > "{{.E2E_TEST_USER_PASSWORD_FILE}}"
+        chmod 600 "{{.E2E_TEST_USER_PASSWORD_FILE}}"
+        echo "e2e test user password written to {{.E2E_TEST_USER_PASSWORD_FILE}}"
+    status:
+      - test -f "{{.E2E_TEST_USER_PASSWORD_FILE}}"
+
+  e2e:infra-up:
+    desc: Provision Entra ID resources with OpenTofu.
+    dir: e2e/tofu
+    preconditions:
+      - sh: '[ -n "{{.OIDC_ISSUER_URL}}" ]'
+        msg: "OIDC_ISSUER_URL must be set (from tofu/ outputs)"
+      - sh: '[ -n "{{.TEST_GROUP_CRB_ID}}" ]'
+        msg: "TEST_GROUP_CRB_ID must be set (from tofu/ outputs)"
+      - sh: '[ -n "{{.TEST_GROUP_RB_ID}}" ]'
+        msg: "TEST_GROUP_RB_ID must be set (from tofu/ outputs)"
+      - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
+        msg: "E2E_TEST_USER_UPN must be set (from tofu/ outputs)"
+    cmds:
+      - tofu init -input=false
+      - >-
+        tofu apply -auto-approve -input=false
+        -var="oidc_issuer_url={{.OIDC_ISSUER_URL}}"
+        -var="static_oidc_issuer_url={{.OIDC_ISSUER_URL}}"
+        -var="test_group_crb_id={{.TEST_GROUP_CRB_ID}}"
+        -var="test_group_rb_id={{.TEST_GROUP_RB_ID}}"
+        -var="e2e_test_user_upn={{.E2E_TEST_USER_UPN}}"
+        {{if .TF_VAR_name_suffix}}-var="name_suffix={{.TF_VAR_name_suffix}}"{{end}}
+
+  e2e:infra-down:
+    desc: Destroy Entra ID resources with OpenTofu.
+    dir: e2e/tofu
+    preconditions:
+      - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
+        msg: "E2E_TEST_USER_UPN must be set (from tofu/ outputs)"
+    cmds:
+      - >-
+        tofu destroy -auto-approve -input=false
+        -var="oidc_issuer_url={{.OIDC_ISSUER_URL}}"
+        -var="static_oidc_issuer_url={{.OIDC_ISSUER_URL}}"
+        -var="test_group_crb_id={{.TEST_GROUP_CRB_ID | default "placeholder"}}"
+        -var="test_group_rb_id={{.TEST_GROUP_RB_ID | default "placeholder"}}"
+        -var="e2e_test_user_upn={{.E2E_TEST_USER_UPN}}"
+
+  e2e:infra-output:
+    desc: Export OpenTofu outputs as environment variables.
+    dir: e2e/tofu
+    cmds:
+      - |
+        set -euo pipefail
+        echo "AZURE_TENANT_ID=$(tofu output -raw tenant_id)"
+        echo "AZURE_CLIENT_ID=$(tofu output -raw controller_client_id)"
+        echo "AZURE_SERVICE_PRINCIPALS=$(tofu output -raw cluster_sp_object_id)"
+        echo "AZURE_APP_ROLE_ID=$(tofu output -raw cluster_app_role_id)"
+        echo "CLUSTER_APP_CLIENT_ID=$(tofu output -raw cluster_app_client_id)"
+        echo "E2E_GROUP_CRB_ID=$(tofu output -raw test_group_crb_id)"
+        echo "E2E_GROUP_RB_ID=$(tofu output -raw test_group_rb_id)"
+
+  e2e:cluster-up:
+    desc: Create kind cluster for e2e tests.
+    preconditions:
+      - sh: '[ -n "{{.OIDC_ISSUER_URL}}" ]'
+        msg: "OIDC_ISSUER_URL must be set"
+    cmds:
+      - |
+        set -euo pipefail
+        # Get cluster app client ID and tenant from tofu output
+        eval "$(task e2e:infra-output)"
+        OIDC_CLIENT_ID="${CLUSTER_APP_CLIENT_ID}"
+        OIDC_TENANT_ISSUER="https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0"
+
+        # Build kind config
+        CONFIG=$(mktemp)
+
+        if [ -f "{{.SA_KEY_FILE}}" ]; then
+          echo "Using stable signing key from {{.SA_KEY_FILE}}"
+          SA_KEY_PATH="$(cd "$(dirname '{{.SA_KEY_FILE}}')" && pwd)/$(basename '{{.SA_KEY_FILE}}')"
+          cat > "$CONFIG" <<EOF
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        nodes:
+        - role: control-plane
+          extraMounts:
+          - hostPath: ${SA_KEY_PATH}
+            containerPath: /etc/kubernetes/pki/sa-stable.key
+            readOnly: true
+          kubeadmConfigPatches:
+          - |
+            kind: ClusterConfiguration
+            apiServer:
+              extraArgs:
+                service-account-signing-key-file: /etc/kubernetes/pki/sa-stable.key
+                service-account-key-file: /etc/kubernetes/pki/sa-stable.key
+                service-account-issuer: {{.OIDC_ISSUER_URL}}
+                oidc-issuer-url: ${OIDC_TENANT_ISSUER}
+                oidc-client-id: ${OIDC_CLIENT_ID}
+                oidc-groups-claim: groups
+                oidc-username-claim: sub
+            controllerManager:
+              extraArgs:
+                service-account-private-key-file: /etc/kubernetes/pki/sa-stable.key
+        EOF
+        else
+          echo "No stable key found — kind will generate its own SA key"
+          cat > "$CONFIG" <<EOF
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        nodes:
+        - role: control-plane
+          kubeadmConfigPatches:
+          - |
+            kind: ClusterConfiguration
+            apiServer:
+              extraArgs:
+                service-account-issuer: {{.OIDC_ISSUER_URL}}
+                oidc-issuer-url: ${OIDC_TENANT_ISSUER}
+                oidc-client-id: ${OIDC_CLIENT_ID}
+                oidc-groups-claim: groups
+                oidc-username-claim: sub
+        EOF
+        fi
+
+        task kind:create-internal KIND_CLUSTER_NAME={{.KIND_CLUSTER_NAME}} KIND_CONFIG_FILE="$CONFIG"
+        rm -f "$CONFIG"
+    status:
+      - kind get clusters 2>/dev/null | grep -q '^{{.KIND_CLUSTER_NAME}}$'
+
+  e2e:build-image:
+    desc: Build controller image as OCI tarball for e2e.
+    cmds:
+      - task: build-image
+        vars:
+          IMG: e2e.local/azure-k8s-role-assigner
+          TAG: e2e
+          IMG_TARBALL: e2e-image.tar
+
+  e2e:load-image:
+    desc: Load the ko-built tarball into the kind cluster.
+    preconditions:
+      - test -f e2e-image.tar
+    cmds:
+      - kind load image-archive e2e-image.tar --name {{.KIND_CLUSTER_NAME}}
+
+  e2e:deploy:
+    desc: Deploy controller with e2e configuration.
+    cmds:
+      - kubectl apply -f config/deployment.yaml
+      - |
+        set -euo pipefail
+        eval "$(task e2e:infra-output)"
+        kubectl patch deployment azure-k8s-role-assigner \
+          -n azure-k8s-role-assigner \
+          --type strategic \
+          --patch '{
+            "spec": {
+              "replicas": 1,
+              "template": {
+                "spec": {
+                  "containers": [{
+                    "name": "manager",
+                    "image": "e2e.local/azure-k8s-role-assigner:e2e",
+                    "imagePullPolicy": "IfNotPresent",
+                    "env": [
+                      {"name": "AZURE_SERVICE_PRINCIPALS", "value": "'"${AZURE_SERVICE_PRINCIPALS}"'"},
+                      {"name": "AZURE_TENANT_ID", "value": "'"${AZURE_TENANT_ID}"'"},
+                      {"name": "AZURE_CLIENT_ID", "value": "'"${AZURE_CLIENT_ID}"'"},
+                      {"name": "AZURE_APP_ROLE_ID", "value": "'"${AZURE_APP_ROLE_ID}"'"}
+                    ]
+                  }]
+                }
+              }
+            }
+          }'
+      - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
+
+  e2e:create-rbac:
+    desc: Create test RBAC bindings using Terraform-provisioned group IDs.
+    cmds:
+      - |
+        set -euo pipefail
+        eval "$(task e2e:infra-output)"
+        kubectl create namespace "{{.E2E_NS}}" --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create clusterrolebinding test-crb-binding \
+          --clusterrole=cluster-admin \
+          --group="${E2E_GROUP_CRB_ID}" \
+          --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create rolebinding test-rb-binding \
+          --namespace="{{.E2E_NS}}" \
+          --clusterrole=view \
+          --group="${E2E_GROUP_RB_ID}" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+  e2e:verify:
+    desc: Verify bound groups appear in Entra token via ROPC user flow.
+    preconditions:
+      - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
+        msg: "E2E_TEST_USER_UPN must be set"
+      - sh: '[ -n "{{.E2E_TEST_USER_PASSWORD}}" ] || [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]'
+        msg: "E2E_TEST_USER_PASSWORD must be set, or run task e2e:download-user-password"
+      - sh: '[ -n "{{.TEST_GROUP_CRB_ID}}" ]'
+        msg: "TEST_GROUP_CRB_ID must be set"
+      - sh: '[ -n "{{.TEST_GROUP_RB_ID}}" ]'
+        msg: "TEST_GROUP_RB_ID must be set"
+    vars:
+      MAX_ATTEMPTS: '{{.MAX_ATTEMPTS | default "30"}}'
+      SLEEP_SECONDS: '{{.SLEEP_SECONDS | default "10"}}'
+    cmds:
+      - |
+        set -euo pipefail
+        eval "$(task e2e:infra-output)"
+
+        E2E_PASSWORD="{{.E2E_TEST_USER_PASSWORD}}"
+        if [ -z "$E2E_PASSWORD" ] && [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]; then
+          E2E_PASSWORD="$(cat "{{.E2E_TEST_USER_PASSWORD_FILE}}")"
+        fi
+
+        if [ -z "$E2E_PASSWORD" ]; then
+          echo "E2E test user password is empty"
+          exit 1
+        fi
+
+        echo "Waiting for bound groups to appear in the Entra token..."
+        for attempt in $(seq 1 {{.MAX_ATTEMPTS}}); do
+          echo "Attempt ${attempt}/{{.MAX_ATTEMPTS}}"
+
+          # Ensure each attempt is independent of prior kubelogin cache state.
+          rm -rf "${HOME}/.kube/cache/kubelogin" "${HOME}/.kube/caches/kubelogin"
+
+          TOKEN_JSON="$(kubelogin get-token \
+            --login ropc \
+            --server-id "${CLUSTER_APP_CLIENT_ID}" \
+            --client-id "${CLUSTER_APP_CLIENT_ID}" \
+            --tenant-id "${AZURE_TENANT_ID}" \
+            --username "{{.E2E_TEST_USER_UPN}}" \
+            --password "$E2E_PASSWORD" 2>&1)" || {
+            echo "kubelogin get-token failed:"
+            echo "$TOKEN_JSON"
+            exit 1
+          }
+
+          ACCESS_TOKEN="$(echo "$TOKEN_JSON" | jq -r '.status.token // .token // empty')"
+
+          if [ -z "$ACCESS_TOKEN" ]; then
+            echo "Unable to extract access token from kubelogin output:"
+            echo "$TOKEN_JSON"
+            exit 1
+          fi
+
+          JWT_PAYLOAD_B64="$(printf '%s' "$ACCESS_TOKEN" | cut -d '.' -f2 | tr '_-' '/+')"
+          PADDED_PAYLOAD_B64="$(printf '%s' "$JWT_PAYLOAD_B64" | awk '{m=length($0)%4; if (m==2) printf "%s==",$0; else if (m==3) printf "%s=",$0; else if (m==1) printf "%s===",$0; else printf "%s",$0}')"
+          JWT_PAYLOAD="$(printf '%s' "$PADDED_PAYLOAD_B64" | openssl base64 -d -A 2>/dev/null || true)"
+
+          if [ -z "$JWT_PAYLOAD" ]; then
+            echo "Failed to decode JWT payload from access token"
+            exit 1
+          fi
+
+          GROUPS="$(echo "$JWT_PAYLOAD" | jq -r '.groups // [] | .[]')"
+
+          echo ""
+          echo "Groups in token:"
+          echo "$GROUPS"
+          echo ""
+
+          PASS=true
+          for gid in "{{.TEST_GROUP_CRB_ID}}" "{{.TEST_GROUP_RB_ID}}"; do
+            if echo "$GROUPS" | grep -q "$gid"; then
+              echo "PASS: Bound group $gid is present in token"
+            else
+              echo "MISS: Bound group $gid is not in token yet"
+              PASS=false
+            fi
+          done
+
+          if [ "$PASS" = true ]; then
+            echo ""
+            echo "All group verification checks passed!"
+            exit 0
+          fi
+
+          kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=10 || true
+          if [[ "$attempt" -eq {{.MAX_ATTEMPTS}} ]]; then
+            echo "Timed out waiting for bound groups in token."
+            exit 1
+          fi
+          sleep {{.SLEEP_SECONDS}}
+        done
+
+  e2e:cleanup:
+    desc: Clean up e2e Kubernetes resources.
+    cmds:
+      - kubectl delete clusterrolebinding test-crb-binding --ignore-not-found
+      - kubectl delete rolebinding test-rb-binding -n {{.E2E_NS}} --ignore-not-found
+      - kubectl delete namespace {{.E2E_NS}} --ignore-not-found
+      - kubectl delete -f config/deployment.yaml --ignore-not-found
+
+  e2e:cluster-down:
+    desc: Delete the kind e2e cluster.
+    cmds:
+      - task: kind:delete-internal
+        vars:
+          KIND_CLUSTER_NAME: "{{.KIND_CLUSTER_NAME}}"
+
+  # --- Release ---
+
+  changelog:
+    desc: Generate changelog using git-cliff.
+    cmds:
+      - git-cliff --output CHANGELOG.md
+
+  next-version:
+    desc: Print the next semantic version based on conventional commits.
+    cmds:
+      - git-cliff --bumped-version

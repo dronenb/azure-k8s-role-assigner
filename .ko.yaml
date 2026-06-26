@@ -1,0 +1,21 @@
+# Check latest: skopeo inspect --override-os linux --override-arch amd64 docker://registry.access.redhat.com/hi/static | jq -r '.Digest'
+defaultBaseImage: registry.access.redhat.com/hi/static@sha256:6568304fd9314d45ff22e1f2a5c2556509717d6ba5d599f0334bba2d11531210
+
+defaultPlatforms:
+  - linux/amd64
+  - linux/arm64
+
+defaultLdflags:
+  - -s
+  - -w
+
+defaultLabels:
+  org.opencontainers.image.title: azure-k8s-role-assigner
+  org.opencontainers.image.description: Kubernetes controller that syncs RBAC bindings to Azure Entra ID app role assignments
+  org.opencontainers.image.url: https://github.com/dronenb/azure-k8s-role-assigner
+  org.opencontainers.image.documentation: https://github.com/dronenb/azure-k8s-role-assigner
+  org.opencontainers.image.source: https://github.com/dronenb/azure-k8s-role-assigner
+  org.opencontainers.image.authors: dronenb
+  org.opencontainers.image.vendor: dronenb
+  org.opencontainers.image.licenses: MIT
+  org.opencontainers.image.base.name: registry.access.redhat.com/hi/static
