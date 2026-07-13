@@ -1,6 +1,6 @@
 # azure-k8s-role-assigner
 
-This Kubernetes controller watches for ClusterRoleBindings and RoleBindings, and assigns the groups in said object to the Azure AD Service Principal, so that the groups returned in the JWT token are filtered.
+This Kubernetes controller watches for ClusterRoleBindings and RoleBindings, and assigns the referenced groups to one or more Microsoft Entra ID service principals so Entra can emit only the Kubernetes-relevant group claims in tokens.
 
 ## Why This Exists
 
@@ -11,9 +11,9 @@ Unfortunately, the Kubernetes API server does not support resolving these distri
 This controller works around this limitation by:
 
 1. Monitoring all RoleBindings and ClusterRoleBindings in your cluster
-2. Ensuring each referenced group exists in Azure AD by group Object ID
-3. Explicitly assigning those groups to your Azure AD Service Principal(s)
-4. This forces Azure AD to filter the groups in the token to only include relevant groups, keeping the count below 200
+2. Ensuring each referenced group exists in Microsoft Entra ID by group Object ID
+3. Explicitly assigning those groups to your cluster authentication service principal(s) using a configured app role
+4. When the cluster authentication app is configured for application-group claims, Entra filters token groups to those assigned to the app, keeping the count below 200
 
 ## How It Works
 
@@ -21,17 +21,18 @@ The controller operates as follows:
 
 1. **Watches Kubernetes RBAC**: Monitors all `RoleBinding` and `ClusterRoleBinding` resources across all namespaces
 2. **Extracts Group IDs**: Reads each `Group` subject `name` as an Azure group Object ID
-3. **Validates in Azure**: Looks up each group in Azure AD by that Object ID
-4. **Assigns to Service Principals**: Creates app role assignments between the groups and your configured Azure AD Service Principal(s)
-5. **Result**: Azure AD now knows which groups are relevant for your Kubernetes authentication and will include only those in the JWT token
+3. **Validates in Azure**: Looks up each group in Microsoft Entra ID by that Object ID
+4. **Assigns to Service Principals**: Creates app role assignments between the groups and your configured service principal(s)
+5. **Result**: Entra knows which groups are relevant for your Kubernetes authentication app and can include only those groups in the JWT token
 
-For detailed reconciliation lifecycle behavior (finalizers, conflict handling, cleanup guarantees, and RBAC escalation semantics), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For detailed reconciliation behavior (read-only Kubernetes RBAC, no finalizers, conflict handling, cleanup guarantees, and RBAC escalation semantics), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Prerequisites
 
 - A Kubernetes cluster (v1.27+)
-- Azure AD tenant with appropriate permissions
-- Azure AD App Registration(s) used for Kubernetes OIDC authentication
+- Microsoft Entra ID tenant with appropriate permissions
+- Microsoft Entra ID app registration(s) used for Kubernetes OIDC authentication
+- Cluster authentication app registration(s) configured to emit assigned application groups, with an app role available for group assignment
 - App registration for the controller with the following:
   - **Owner** of the app registration(s) used for Kubernetes OIDC authentication
   - `Application.ReadWrite.OwnedBy` permission (to manage applications it owns)
@@ -50,7 +51,7 @@ For detailed reconciliation lifecycle behavior (finalizers, conflict handling, c
 
 ### 1. Configure Azure Workload Identity
 
-Edit [config/deployment.yaml](config/deployment.yaml) and update the ServiceAccount annotation and environment variables:
+Edit [config/deployment.yaml](config/deployment.yaml), update the ServiceAccount annotation, and set the required environment variables. The checked-in manifest includes placeholders for most values; add `AZURE_APP_ROLE_ID` if it is not already present in your copy.
 
 **ServiceAccount annotation (required for Workload Identity):**
 
@@ -65,7 +66,8 @@ metadata:
 **Environment variables in the deployment:**
 
 - `AZURE_SERVICE_PRINCIPALS`: Comma-separated list of Object IDs (not client IDs) of the service principals used for Kubernetes OIDC authentication
-- `AZURE_TENANT_ID`: Your Azure AD tenant ID
+- `AZURE_APP_ROLE_ID`: App role ID on the cluster authentication app to assign groups to
+- `AZURE_TENANT_ID`: Your Microsoft Entra tenant ID
 - `AZURE_CLIENT_ID`: Automatically injected by Azure Workload Identity webhook from the ServiceAccount annotation. If not using Workload Identity, uncomment and set manually.
 - `AZURE_CLIENT_SECRET`: (Optional) Only needed if using client secret authentication instead of Workload Identity
 - `AZURE_FEDERATED_TOKEN_FILE`: Path to federated token file for Workload Identity (default: `/var/run/secrets/azure/tokens/azure-identity-token`)
@@ -77,6 +79,13 @@ metadata:
 az ad sp show --id <CLIENT_ID> --query id -o tsv
 ```
 
+**Finding the app role ID:**
+
+```bash
+az ad app show --id <CLUSTER_AUTH_APP_ID> \
+  --query "appRoles[?value=='Cluster.Access'].id | [0]" -o tsv
+```
+
 **Setting up Workload Identity:**
 
 ```bash
@@ -85,7 +94,7 @@ az ad app federated-credential create \
   --id <CONTROLLER_APP_OBJECT_ID> \
   --parameters '{
     "name": "azure-k8s-role-assigner",
-    "issuer": "https://oidc.prod-aks.azure.com/<TENANT_ID>/",
+    "issuer": "<AKS_OIDC_ISSUER_URL>",
     "subject": "system:serviceaccount:azure-k8s-role-assigner:azure-k8s-role-assigner",
     "audiences": ["api://AzureADTokenExchange"]
   }'
@@ -115,7 +124,7 @@ The deployment includes comprehensive security hardening:
 - **Dropped capabilities**: All Linux capabilities dropped
 - **No privilege escalation**: `allowPrivilegeEscalation: false`
 - **Seccomp**: RuntimeDefault seccomp profile applied
-- **No service account token**: `automountServiceAccountToken: false`
+- **Scoped token use**: Service account token mounting is enabled for Workload Identity; the federated token is projected with the `api://AzureADTokenExchange` audience
 
 **High Availability:**
 
@@ -157,7 +166,7 @@ If you're running on a cluster without the Azure Workload Identity webhook insta
 If your cluster has OIDC issuer configured but the webhook is not installed:
 
 1. Keep the federated credential configuration from step 1
-2. Manually configure the environment variables in [config/deployment.yaml](config/deployment.yaml):
+2. Manually configure the Workload Identity environment variables in [config/deployment.yaml](config/deployment.yaml):
    ```yaml
    env:
      - name: AZURE_CLIENT_ID
@@ -196,7 +205,7 @@ If running on Azure VMs or VMSS with managed identity assigned:
 1. Assign a user-assigned or system-assigned managed identity to your nodes
 2. Grant the managed identity the required permissions
 3. Remove or ignore the ServiceAccount annotation and pod label
-4. Set only the required environment variable:
+4. Set the managed identity selector if you are using a user-assigned identity:
 
    ```yaml
    env:
@@ -210,10 +219,11 @@ If running on Azure VMs or VMSS with managed identity assigned:
 
 ### Environment Variables
 
-The controller supports the following environment variables (configured directly in [config/deployment.yaml](config/deployment.yaml)):
+The controller supports the following environment variables, normally set on the deployment in [config/deployment.yaml](config/deployment.yaml):
 
-- **`AZURE_SERVICE_PRINCIPALS`** (required): Comma-separated list of Azure AD Service Principal Object IDs
-- **`AZURE_TENANT_ID`** (required): Azure AD tenant ID
+- **`AZURE_SERVICE_PRINCIPALS`** (required): Comma-separated list of Microsoft Entra service principal Object IDs
+- **`AZURE_APP_ROLE_ID`** (required): App role ID on the cluster authentication app used when creating group assignments
+- **`AZURE_TENANT_ID`** (required): Microsoft Entra tenant ID
 - **`AZURE_CLIENT_ID`** (auto-injected by Workload Identity): Client ID of the controller's app registration. When using Workload Identity, this is automatically injected from the ServiceAccount annotation. For client secret auth, set manually.
 - **`AZURE_CLIENT_SECRET`** (optional): Client secret (only if not using Workload Identity)
 - **`AZURE_FEDERATED_TOKEN_FILE`** (optional): Path to federated token file for Workload Identity
@@ -224,36 +234,40 @@ The controller supports the following environment variables (configured directly
 - `--metrics-bind-address`: Address for metrics endpoint (default: `:8080`)
 - `--health-probe-bind-address`: Address for health probes (default: `:8081`)
 - `--leader-elect`: Enable leader election for high availability (enabled by default in the deployment)
+- `--resync-period`: Interval for periodic full-state reconciliation (default: `10m`)
 
 ## Development
 
 ### Prerequisites
 
-- Go 1.22+
-- Docker
+- Go version from [go.mod](go.mod)
+- [Task](https://taskfile.dev/) v3+
+- [ko](https://ko.build/) for image builds
 - kubectl
 - Access to a Kubernetes cluster
 
-For detailed testing instructions with Minikube and Azure AD setup, see [TESTING.md](TESTING.md).
+For detailed testing instructions with kind and Microsoft Entra setup, see [TESTING.md](TESTING.md).
 
 ### Building
 
 ```bash
 # Build the binary
-make build
+task build
 
 # Run locally (requires kubeconfig)
-make run
+task run
 
 # Run tests
-make test
+task test
 
-# Build Docker image
-make docker-build IMG=your-registry/azure-k8s-role-assigner:tag
+# Build an OCI image tarball with ko
+task build-image IMG=your-registry/azure-k8s-role-assigner TAG=tag IMG_TARBALL=image.tar
 
-# Push Docker image
-make docker-push IMG=your-registry/azure-k8s-role-assigner:tag
+# Deploy the checked-in manifest to the current kubeconfig context
+task deploy
 ```
+
+Run `task --list` for the full set of development, kind, e2e, and release helper tasks.
 
 ### Running Locally
 
@@ -266,12 +280,13 @@ export AZURE_TENANT_ID="your-tenant-id"
 export AZURE_CLIENT_ID="your-client-id"
 export AZURE_CLIENT_SECRET="your-client-secret"
 export AZURE_SERVICE_PRINCIPALS="sp-object-id-1,sp-object-id-2"
+export AZURE_APP_ROLE_ID="cluster-auth-app-role-id"
 ```
 
 2. Run the controller:
 
 ```bash
-make run
+task run
 ```
 
 ## Monitoring
@@ -288,6 +303,7 @@ The controller exposes metrics on port 8080 at `/metrics` in Prometheus format. 
 4. Ensure the controller's app registration is an owner of the cluster auth app registration(s)
 5. Ensure the controller's identity has the required Graph API permissions (`Application.ReadWrite.OwnedBy` and `Group.Read.All`)
 6. Verify the service principal Object IDs are correct (not client IDs)
+7. Verify `AZURE_APP_ROLE_ID` is set to an app role ID from the cluster authentication app registration
 
 ### Authentication Errors
 
@@ -315,7 +331,7 @@ The controller exposes metrics on port 8080 at `/metrics` in Prometheus format. 
 
 ## Testing
 
-For a complete testing guide including setting up Azure AD app registrations, configuring Minikube with OIDC authentication, and verifying the controller functionality, see [TESTING.md](TESTING.md).
+For a complete testing guide including setting up Microsoft Entra app registrations, configuring kind with OIDC authentication, and verifying the controller functionality, see [TESTING.md](TESTING.md).
 
 ## Terraform Limited-Privilege Consent
 
