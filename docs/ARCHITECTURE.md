@@ -19,14 +19,29 @@ Out of scope:
 
 ## High-Level Flow
 
-For each reconcile event (`RoleBinding` or `ClusterRoleBinding`):
+Reconciliation is level-based and full-state. Any event on a `RoleBinding` or
+`ClusterRoleBinding` (create, update, delete) triggers a single convergence pass
+that rebuilds the complete desired state from all live bindings. The specific
+object in the reconcile request is not read for its contents; a deleted binding
+simply no longer contributes groups to the desired set.
 
-1. Read the binding.
-2. Extract candidate group IDs from `subjects[].name` where `kind=Group`.
-3. Filter candidates to valid Azure UUIDs only.
-4. For each valid Azure group, validate in Azure AD and assign to configured service principals.
-5. Compute desired state from all current bindings and remove stale Azure assignments that are no longer referenced.
-6. Requeue periodically for full convergence (eventual consistency), even if no binding events arrive.
+Each convergence pass:
+
+1. Lists all `RoleBinding` and `ClusterRoleBinding` resources (ignoring any that
+   are being deleted).
+2. Extracts candidate group IDs from `subjects[].name` where `kind=Group`.
+3. Filters candidates to valid Azure UUIDs only.
+4. Resolves each candidate against Azure AD to its canonical object ID and
+   assigns it to the configured service principals.
+5. Lists the groups currently assigned to those service principals via the
+   controller's app role, and removes any that are no longer in the desired set.
+6. Requeues after a configurable resync period (`--resync-period`, default 10m)
+   for full convergence, so deletions are reconciled even if no binding events
+   arrive.
+
+The convergence pass is shared by both the `RoleBinding` and
+`ClusterRoleBinding` controllers and is serialized so the two cannot interleave
+conflicting assign/remove operations.
 
 ## Group Extraction and Validation
 
@@ -41,17 +56,16 @@ This avoids attempting Azure operations for Kubernetes/system identities and pre
 
 ## Why We Do Not Use Finalizers
 
-This controller intentionally does not write to `RoleBinding` or `ClusterRoleBinding` objects.
+This controller intentionally does not write to `RoleBinding` or `ClusterRoleBinding` objects. It does not use finalizers, annotations, or any other metadata on binding resources.
 
 Why:
 
 - Binding updates are privilege-sensitive in Kubernetes RBAC and can trigger escalation checks.
 - Even metadata-only changes on binding resources require write permissions that are broader than desired for this controller.
-- For `RoleBinding` and `ClusterRoleBinding` in this environment, finalizers are not exposed as a dedicated `/finalizers` subresource; they are part of object metadata on the main resource.
-- As a result, adding or removing finalizers still requires write access (`patch`/`update`) on the binding resources themselves.
-- The target security posture is read-only access to binding resources (`get`, `list`, `watch`) with no `patch` or `update`.
+- For `RoleBinding` and `ClusterRoleBinding`, finalizers are not exposed as a dedicated `/finalizers` subresource; they are part of object metadata on the main resource, so adding or removing them would require `patch`/`update` on the binding resources themselves.
+- The security posture is read-only access to binding resources (`get`, `list`, `watch`) with no `patch` or `update`.
 
-Instead of delete-time hooks, cleanup is achieved through periodic full reconciliation against live cluster state and current Azure assignments.
+Instead of delete-time finalizer hooks, cleanup is achieved through full-state reconciliation (see [Cleanup and Leak Prevention](#cleanup-and-leak-prevention)): each reconcile recomputes the desired assignments from all live bindings and removes any Azure assignment that is no longer desired. A periodic resync guarantees this converges even when a delete event is missed.
 
 ## Why Not Metadata Tracking
 
@@ -74,19 +88,20 @@ Cleanup is designed for many-to-many relationships:
 - a group can be referenced by multiple bindings
 - a binding can include multiple groups
 
-During reconciliation, the controller:
+During each reconciliation, the controller:
 
 1. Lists all `RoleBinding` resources.
 2. Lists all `ClusterRoleBinding` resources.
-3. Builds the desired set of Azure group assignments from all live bindings.
-4. Removes Azure assignment only if no references remain in that desired set.
+3. Builds the desired set of Azure group assignments from all live bindings (the union of referenced groups).
+4. Lists the groups actually assigned to the configured service principals via the controller's app role.
+5. Removes an Azure assignment only when the group is present in the actual set but absent from the desired set.
 
-This prevents premature de-assignment when multiple bindings share the same group and helps prevent cloud-side orphaning.
+Because desired state is the union across all bindings, a group that is still referenced by any other binding remains assigned; this prevents premature de-assignment when multiple bindings share the same group. Because the actual set is read from Azure (scoped to the controller's app role), assignments whose bindings disappeared while the controller was down are also reconciled away on the next pass, preventing cloud-side orphaning. Removal is restricted to assignments created with the controller's configured app role, so assignments made by other means are never touched.
 
 ## Conflict Handling and Idempotency
 
 - Azure assignment calls are effectively idempotent in practice; "already exists" conditions are logged and reconciliation continues.
-- Group-level failures do not abort processing of other groups in the same binding reconcile.
+- Group-level failures do not abort processing of other groups in the same convergence pass.
 - Reconciles are level-based and periodic, so retries naturally converge when transient failures clear.
 
 ## Failure Modes and Behavior
@@ -132,7 +147,11 @@ Given the requirement to keep permissions narrow and implementation simple, peri
 
 ## Code Map
 
+- Shared full-state convergence (desired-set computation, assign/remove, serialization):
+  - `internal/controller/reconcile_state.go`
 - RoleBinding reconciler:
   - `internal/controller/rolebinding_controller.go`
 - ClusterRoleBinding reconciler:
   - `internal/controller/clusterrolebinding_controller.go`
+- Azure Graph client (assignment, removal, listing managed assignments):
+  - `internal/azure/client.go`
