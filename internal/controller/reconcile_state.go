@@ -7,12 +7,12 @@ import (
 	"strings"
 	"sync"
 
+	appmetrics "github.com/dronenb/azure-k8s-role-assigner/internal/metrics"
+	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"github.com/microsoftgraph/msgraph-sdk-go/models"
 )
 
 // AzureGroupManager is the subset of the Azure client used by the reconcilers.
@@ -78,6 +78,8 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	appmetrics.ReconcileGroupsDesired.Set(float64(len(desired)))
+	appmetrics.ReconcileGroupsEnsured.Set(float64(len(desired)))
 
 	// Assign every desired group. Assignment is idempotent in Azure, so
 	// re-assigning already-assigned groups is a no-op.
@@ -98,18 +100,24 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 		return fmt.Errorf("failed to list managed group assignments from Azure: %w", err)
 	}
 
+	groupsToRemove := 0
+	groupsRemoved := 0
 	for groupID := range actual {
 		if _, stillDesired := desired[groupID]; stillDesired {
 			continue
 		}
+		groupsToRemove++
 		logger.Info("Group is no longer referenced by any binding, removing from Azure", "groupID", groupID)
 		if err := r.AzureClient.RemoveGroupFromServicePrincipals(ctx, groupID); err != nil {
 			logger.Error(err, "Failed to remove group from service principals", "groupID", groupID)
 			// Continue removing other stale groups; the next reconcile retries.
 			continue
 		}
+		groupsRemoved++
 		logger.Info("Successfully removed group from Azure", "groupID", groupID)
 	}
+	appmetrics.ReconcileGroupsToRemove.Set(float64(groupsToRemove))
+	appmetrics.ReconcileGroupsActual.Set(float64(len(actual) - groupsRemoved))
 
 	return nil
 }
@@ -139,7 +147,7 @@ func (r *StateReconciler) buildDesiredGroupIDs(ctx context.Context) (map[string]
 		if !rb.DeletionTimestamp.IsZero() {
 			continue
 		}
-		for _, groupID := range extractGroupsFromSubjects(rb.Subjects) {
+		for _, groupID := range extractGroupsFromSubjects(rb.Subjects, "rolebinding") {
 			candidates[groupID] = struct{}{}
 		}
 	}
@@ -148,7 +156,7 @@ func (r *StateReconciler) buildDesiredGroupIDs(ctx context.Context) (map[string]
 		if !crb.DeletionTimestamp.IsZero() {
 			continue
 		}
-		for _, groupID := range extractGroupsFromSubjects(crb.Subjects) {
+		for _, groupID := range extractGroupsFromSubjects(crb.Subjects, "clusterrolebinding") {
 			candidates[groupID] = struct{}{}
 		}
 	}
@@ -160,14 +168,17 @@ func (r *StateReconciler) buildDesiredGroupIDs(ctx context.Context) (map[string]
 	for groupID := range candidates {
 		group, err := r.AzureClient.GetGroupByID(ctx, groupID)
 		if err != nil {
+			appmetrics.GroupLookupTotal.WithLabelValues(appmetrics.ClassifyAzureError(err)).Inc()
 			logger.Error(err, "Failed to find group in Azure; skipping", "groupID", groupID)
 			continue
 		}
 		resolvedGroupID := group.GetId()
 		if resolvedGroupID == nil {
+			appmetrics.GroupLookupTotal.WithLabelValues("error").Inc()
 			logger.Error(fmt.Errorf("group ID is nil"), "Resolved group ID is nil; skipping", "groupID", groupID)
 			continue
 		}
+		appmetrics.GroupLookupTotal.WithLabelValues("success").Inc()
 		desired[*resolvedGroupID] = struct{}{}
 	}
 
@@ -180,8 +191,8 @@ func isValidAzureUUID(s string) bool {
 	return uuidRegex.MatchString(strings.ToLower(s))
 }
 
-// extractGroupsFromSubjects extracts unique group IDs from subjects, filtering system groups and non-UUID groups
-func extractGroupsFromSubjects(subjects []rbacv1.Subject) []string {
+// extractGroupsFromSubjects extracts unique group IDs from subjects, filtering system groups and non-UUID groups.
+func extractGroupsFromSubjects(subjects []rbacv1.Subject, source string) []string {
 	groups := []string{}
 	seen := make(map[string]bool)
 
@@ -189,16 +200,23 @@ func extractGroupsFromSubjects(subjects []rbacv1.Subject) []string {
 		if subject.Kind != "Group" {
 			continue
 		}
+		appmetrics.GroupCandidatesTotal.WithLabelValues(source).Inc()
 
 		groupID := subject.Name
 
 		// Skip Kubernetes built-in groups
-		if strings.HasPrefix(groupID, "system:") || strings.HasPrefix(groupID, "kubeadm:") {
+		if strings.HasPrefix(groupID, "system:") {
+			appmetrics.InvalidGroupSubjectsTotal.WithLabelValues(source, "system_group").Inc()
+			continue
+		}
+		if strings.HasPrefix(groupID, "kubeadm:") {
+			appmetrics.InvalidGroupSubjectsTotal.WithLabelValues(source, "kubeadm_group").Inc()
 			continue
 		}
 
 		// Only process valid Azure UUIDs
 		if !isValidAzureUUID(groupID) {
+			appmetrics.InvalidGroupSubjectsTotal.WithLabelValues(source, "non_uuid").Inc()
 			continue
 		}
 

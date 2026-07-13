@@ -2,16 +2,21 @@ package azure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	appmetrics "github.com/dronenb/azure-k8s-role-assigner/internal/metrics"
 	"github.com/google/uuid"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 )
+
+var errAssignmentAlreadyExists = errors.New("assignment already exists")
 
 // Client handles Azure AD operations
 type Client struct {
@@ -43,12 +48,14 @@ func NewClient(ctx context.Context) (*Client, error) {
 	// Create credential
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
+		appmetrics.AuthFailuresTotal.WithLabelValues("credential_init").Inc()
 		return nil, fmt.Errorf("failed to create credential: %w", err)
 	}
 
 	// Create Graph client
 	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(cred, []string{"https://graph.microsoft.com/.default"})
 	if err != nil {
+		appmetrics.AuthFailuresTotal.WithLabelValues("credential_init").Inc()
 		return nil, fmt.Errorf("failed to create graph client: %w", err)
 	}
 
@@ -65,15 +72,19 @@ func (c *Client) GetGroupByID(ctx context.Context, groupID string) (models.Group
 	c.mu.RLock()
 	if group, ok := c.groupCache[groupID]; ok {
 		c.mu.RUnlock()
+		appmetrics.GroupCacheRequestsTotal.WithLabelValues("hit").Inc()
 		return group, nil
 	}
 	c.mu.RUnlock()
+	appmetrics.GroupCacheRequestsTotal.WithLabelValues("miss").Inc()
 
 	if _, err := uuid.Parse(groupID); err != nil {
 		return nil, fmt.Errorf("invalid group object ID %q: %w", groupID, err)
 	}
 
+	start := time.Now()
 	group, err := c.graphClient.Groups().ByGroupId(groupID).Get(ctx, nil)
+	appmetrics.ObserveAzureRequest("get_group", start, err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get group by object ID %s: %w", groupID, err)
 	}
@@ -81,6 +92,7 @@ func (c *Client) GetGroupByID(ctx context.Context, groupID string) (models.Group
 	// Cache the group
 	c.mu.Lock()
 	c.groupCache[groupID] = group
+	appmetrics.GroupCacheEntries.Set(float64(len(c.groupCache)))
 	c.mu.Unlock()
 
 	return group, nil
@@ -92,7 +104,14 @@ func (c *Client) AssignGroupToServicePrincipals(ctx context.Context, groupID str
 
 	for _, spID := range c.servicePrincipals {
 		if err := c.assignGroupToServicePrincipal(ctx, spID, groupID); err != nil {
+			if errors.Is(err, errAssignmentAlreadyExists) {
+				appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", "already_exists").Inc()
+				continue
+			}
+			appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", appmetrics.ClassifyAzureError(err)).Inc()
 			errs = append(errs, fmt.Errorf("failed to assign group %s to SP %s: %w", groupID, spID, err))
+		} else {
+			appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", "success").Inc()
 		}
 	}
 
@@ -109,7 +128,10 @@ func (c *Client) RemoveGroupFromServicePrincipals(ctx context.Context, groupID s
 
 	for _, spID := range c.servicePrincipals {
 		if err := c.removeGroupFromServicePrincipal(ctx, spID, groupID); err != nil {
+			appmetrics.AssignmentOperationsTotal.WithLabelValues("remove", appmetrics.ClassifyAzureError(err)).Inc()
 			errs = append(errs, fmt.Errorf("failed to remove group %s from SP %s: %w", groupID, spID, err))
+		} else {
+			appmetrics.AssignmentOperationsTotal.WithLabelValues("remove", "success").Inc()
 		}
 	}
 
@@ -123,7 +145,9 @@ func (c *Client) RemoveGroupFromServicePrincipals(ctx context.Context, groupID s
 // removeGroupFromServicePrincipal removes a group assignment from a service principal
 func (c *Client) removeGroupFromServicePrincipal(ctx context.Context, spID, groupID string) error {
 	// Get all assignments to find the one we need to delete
+	start := time.Now()
 	result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
+	appmetrics.ObserveAzureRequest("list_assignments", start, err)
 	if err != nil {
 		return fmt.Errorf("failed to list app role assignments: %w", err)
 	}
@@ -145,7 +169,9 @@ func (c *Client) removeGroupFromServicePrincipal(ctx context.Context, spID, grou
 	}
 
 	// Delete the assignment
+	start = time.Now()
 	err = c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().ByAppRoleAssignmentId(*assignmentID).Delete(ctx, nil)
+	appmetrics.ObserveAzureRequest("delete_assignment", start, err)
 	if err != nil {
 		return fmt.Errorf("failed to delete app role assignment: %w", err)
 	}
@@ -163,7 +189,7 @@ func (c *Client) assignGroupToServicePrincipal(ctx context.Context, spID, groupI
 		return fmt.Errorf("failed to check existing assignment: %w", err)
 	}
 	if exists {
-		return nil // Already assigned
+		return errAssignmentAlreadyExists
 	}
 
 	// Create app role assignment
@@ -189,11 +215,13 @@ func (c *Client) assignGroupToServicePrincipal(ctx context.Context, spID, groupI
 	}
 	requestBody.SetAppRoleId(&appRoleUUID)
 
+	start := time.Now()
 	_, err = c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Post(ctx, requestBody, nil)
+	appmetrics.ObserveAzureRequest("create_assignment", start, err)
 	if err != nil {
 		// Treat duplicate assignment responses as success for idempotency.
 		if isAlreadyAssignedError(err) {
-			return nil
+			return errAssignmentAlreadyExists
 		}
 		return fmt.Errorf("failed to create app role assignment: %w", err)
 	}
@@ -204,7 +232,9 @@ func (c *Client) assignGroupToServicePrincipal(ctx context.Context, spID, groupI
 // isGroupAssigned checks if a group is already assigned to a service principal
 func (c *Client) isGroupAssigned(ctx context.Context, spID, groupID string) (bool, error) {
 	// Get all assignments (filtering is not supported on this collection)
+	start := time.Now()
 	result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
+	appmetrics.ObserveAzureRequest("list_assignments", start, err)
 	if err != nil {
 		return false, err
 	}
@@ -237,7 +267,9 @@ func (c *Client) ListManagedAssignedGroupIDs(ctx context.Context) (map[string]st
 
 	assigned := make(map[string]struct{})
 	for _, spID := range c.servicePrincipals {
+		start := time.Now()
 		result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
+		appmetrics.ObserveAzureRequest("list_assignments", start, err)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list app role assignments for SP %s: %w", spID, err)
 		}
@@ -265,6 +297,7 @@ func (c *Client) ClearCache() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.groupCache = make(map[string]models.Groupable)
+	appmetrics.GroupCacheEntries.Set(0)
 }
 
 func isAlreadyAssignedError(err error) bool {

@@ -104,7 +104,7 @@ func TestExtractGroupsFromSubjects(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := extractGroupsFromSubjects(tc.subjects)
+			got := extractGroupsFromSubjects(tc.subjects, "test")
 			assert.Equal(t, tc.want, got)
 		})
 	}

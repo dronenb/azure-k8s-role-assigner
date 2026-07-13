@@ -102,12 +102,15 @@ tasks:
   deploy:
     desc: Deploy controller to the K8s cluster specified in ~/.kube/config.
     cmds:
-      - kubectl apply -f config/deployment.yaml
+      - >-
+        helm upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner
+        --namespace azure-k8s-role-assigner
+        --create-namespace
 
   undeploy:
     desc: Undeploy controller from the K8s cluster specified in ~/.kube/config.
     cmds:
-      - kubectl delete -f config/deployment.yaml
+      - helm uninstall azure-k8s-role-assigner --namespace azure-k8s-role-assigner --ignore-not-found
 
   # --- Local kind Workflow ---
 
@@ -199,23 +202,26 @@ tasks:
         msg: "AZURE_APP_ROLE_ID must be set (export AZURE_APP_ROLE_ID=$(cd e2e/tofu && tofu output -raw cluster_app_role_id))"
     cmds:
       - kubectl config use-context kind-{{.KIND_LOCAL_CLUSTER_NAME}}
-      - kubectl apply -f config/deployment.yaml
-      - |
-        # Single atomic patch: image + imagePullPolicy + all env vars together.
-        # Using one patch avoids intermediate ReplicaSets with imagePullPolicy:Always
-        # that try to pull localhost/ from the network and cause ImagePullBackOff.
-        kubectl patch deployment azure-k8s-role-assigner \
-          -n azure-k8s-role-assigner \
-          --type strategic \
-          --patch '{"spec":{"replicas":1,"template":{"spec":{"containers":[{"name":"manager","image":"{{.KIND_LOCAL_IMAGE}}","imagePullPolicy":"Never","env":[{"name":"AZURE_SERVICE_PRINCIPALS","value":"{{.AZURE_SERVICE_PRINCIPALS}}"},{"name":"AZURE_TENANT_ID","value":"{{.AZURE_TENANT_ID}}"},{"name":"AZURE_CLIENT_ID","value":"{{.AZURE_CLIENT_ID}}"},{"name":"AZURE_APP_ROLE_ID","value":"{{.AZURE_APP_ROLE_ID}}"},{"name":"AZURE_TOKEN_CREDENTIALS","value":"prod"}]}]}}}}'
       - |
         set -euo pipefail
+        HELM_ARGS=(
+          upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner
+          --namespace azure-k8s-role-assigner
+          --create-namespace
+          --set replicaCount=1
+          --set image.repository=localhost/azure-k8s-role-assigner
+          --set image.tag={{.KIND_LOCAL_TAG}}
+          --set image.pullPolicy=Never
+          --set-literal azure.servicePrincipals="{{.AZURE_SERVICE_PRINCIPALS}}"
+          --set-string azure.tenantId="{{.AZURE_TENANT_ID}}"
+          --set-string azure.clientId="{{.AZURE_CLIENT_ID}}"
+          --set-string azure.appRoleId="{{.AZURE_APP_ROLE_ID}}"
+          --set-string azure.tokenCredentials=prod
+        )
         if [ -n "{{.AZURE_CLIENT_SECRET}}" ]; then
-          kubectl -n azure-k8s-role-assigner set env deployment/azure-k8s-role-assigner AZURE_CLIENT_SECRET="{{.AZURE_CLIENT_SECRET}}"
-        else
-          # Remove if previously set; no-op (no rollout) if absent
-          kubectl -n azure-k8s-role-assigner set env deployment/azure-k8s-role-assigner AZURE_CLIENT_SECRET-
+          HELM_ARGS+=(--set-string azure.clientSecret="{{.AZURE_CLIENT_SECRET}}")
         fi
+        helm "${HELM_ARGS[@]}"
       - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
 
   kind:logs:
@@ -439,33 +445,20 @@ tasks:
   e2e:deploy:
     desc: Deploy controller with e2e configuration.
     cmds:
-      - kubectl apply -f config/deployment.yaml
       - |
         set -euo pipefail
         eval "$(task e2e:infra-output)"
-        kubectl patch deployment azure-k8s-role-assigner \
-          -n azure-k8s-role-assigner \
-          --type strategic \
-          --patch '{
-            "spec": {
-              "replicas": 1,
-              "template": {
-                "spec": {
-                  "containers": [{
-                    "name": "manager",
-                    "image": "e2e.local/azure-k8s-role-assigner:e2e",
-                    "imagePullPolicy": "IfNotPresent",
-                    "env": [
-                      {"name": "AZURE_SERVICE_PRINCIPALS", "value": "'"${AZURE_SERVICE_PRINCIPALS}"'"},
-                      {"name": "AZURE_TENANT_ID", "value": "'"${AZURE_TENANT_ID}"'"},
-                      {"name": "AZURE_CLIENT_ID", "value": "'"${AZURE_CLIENT_ID}"'"},
-                      {"name": "AZURE_APP_ROLE_ID", "value": "'"${AZURE_APP_ROLE_ID}"'"}
-                    ]
-                  }]
-                }
-              }
-            }
-          }'
+        helm upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner \
+          --namespace azure-k8s-role-assigner \
+          --create-namespace \
+          --set replicaCount=1 \
+          --set image.repository=e2e.local/azure-k8s-role-assigner \
+          --set image.tag=e2e \
+          --set image.pullPolicy=IfNotPresent \
+          --set-literal azure.servicePrincipals="${AZURE_SERVICE_PRINCIPALS}" \
+          --set-string azure.tenantId="${AZURE_TENANT_ID}" \
+          --set-string azure.clientId="${AZURE_CLIENT_ID}" \
+          --set-string azure.appRoleId="${AZURE_APP_ROLE_ID}"
       - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
 
   e2e:create-rbac:
@@ -701,7 +694,7 @@ tasks:
       - kubectl delete clusterrolebinding test-crb-binding --ignore-not-found
       - kubectl delete rolebinding test-rb-binding -n {{.E2E_NS}} --ignore-not-found
       - kubectl delete namespace {{.E2E_NS}} --ignore-not-found
-      - kubectl delete -f config/deployment.yaml --ignore-not-found
+      - helm uninstall azure-k8s-role-assigner --namespace azure-k8s-role-assigner --ignore-not-found
 
   e2e:cluster-down:
     desc: Delete the kind e2e cluster.

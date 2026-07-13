@@ -110,7 +110,7 @@ resource "azurerm_resource_group" "ci" {
   location = var.location
 }
 
-# --- RSA Signing Key (stable, for minikube SA issuer) ---
+# --- RSA Signing Key (stable, for Kubernetes SA issuer) ---
 
 resource "tls_private_key" "sa_signing" {
   algorithm = "RSA"
@@ -169,7 +169,7 @@ resource "azurerm_key_vault_secret" "e2e_test_user_password" {
   depends_on = [time_sleep.wait_for_kv_rbac]
 }
 
-# --- OIDC Storage Account (minikube SA issuer) ---
+# --- OIDC Storage Account (Kubernetes SA issuer) ---
 
 resource "azurerm_storage_account" "oidc" {
   name                     = "k8soidcassigner"

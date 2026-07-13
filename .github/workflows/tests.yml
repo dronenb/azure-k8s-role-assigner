@@ -5,7 +5,7 @@ on:
   pull_request:
     paths:
       - "**/*.go"
-      - "config/**"
+      - "charts/**"
       - "e2e/**"
       - ".goreleaser.yml"
       - ".ko.yaml"
@@ -120,6 +120,11 @@ jobs:
       - name: Set up kubectl
         # Check latest: TAG=$(gh api repos/azure/setup-kubectl/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/setup-kubectl/git/ref/tags/$TAG --jq .object.sha); echo "azure/setup-kubectl@$SHA # $TAG"
         uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+
+      - name: Install Helm
+        run: |
+          curl -sSfL https://get.helm.sh/helm-v4.2.3-linux-amd64.tar.gz | tar xzf - -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
 
       - name: Download signing key
         env:

@@ -243,7 +243,7 @@ In another terminal, create/delete RBAC bindings and watch the controller reconc
 
 ## CI/CD
 
-The `.github/workflows/tests.yml` workflow runs on PRs touching Go, config,
+The `.github/workflows/tests.yml` workflow runs on PRs touching Go, charts,
 OpenTofu, Taskfile, or workflow files. It has two jobs:
 
 **`unit`** — runs on every PR (including forks), no cloud credentials required:
