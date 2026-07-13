@@ -1,4 +1,4 @@
-name: E2E Tests
+name: CI
 
 on:
   workflow_dispatch:
@@ -12,19 +12,62 @@ on:
       - "Taskfile.yml"
       - "go.mod"
       - "go.sum"
-      - ".github/workflows/e2e.yml"
+      - ".github/workflows/tests.yml"
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: e2e-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  unit:
+    name: Unit Tests (fmt, vet, test)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        # Check latest: TAG=$(gh api repos/actions/checkout/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/checkout/git/ref/tags/$TAG --jq .object.sha); echo "actions/checkout@$SHA # $TAG"
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Go
+        # Check latest: TAG=$(gh api repos/actions/setup-go/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/setup-go/git/ref/tags/$TAG --jq .object.sha); echo "actions/setup-go@$SHA # $TAG"
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install Task
+        # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
+        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+        with:
+          version: 3.x
+
+      - name: Run unit tests (fmt, vet, test with coverage)
+        run: task test
+
+      - name: Verify formatting left no changes
+        run: |
+          if ! git diff --quiet; then
+            echo "::error::go fmt produced changes. Run 'task fmt' and commit the result."
+            git diff --stat
+            exit 1
+          fi
+
+      - name: Upload coverage report
+        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG --jq .object.sha); echo "actions/upload-artifact@$SHA # $TAG"
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: coverage
+          path: cover.out
+          if-no-files-found: ignore
+
   e2e:
     name: End-to-End (kind + Entra)
+    needs: unit
     if: github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-26.04
     timeout-minutes: 60
@@ -139,6 +182,14 @@ jobs:
           TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
           TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
         run: task e2e:verify
+
+      - name: Verify deletion removes group from token
+        env:
+          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
+          E2E_TEST_USER_PASSWORD: ${{ env.E2E_TEST_USER_PASSWORD }}
+          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
+          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+        run: task e2e:verify-deletion
 
       - name: Collect diagnostics
         if: always()

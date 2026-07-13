@@ -221,6 +221,45 @@ func (c *Client) isGroupAssigned(ctx context.Context, spID, groupID string) (boo
 	return false, nil
 }
 
+// ListManagedAssignedGroupIDs returns the union of group principal IDs that are
+// currently assigned to any of the configured service principals via this
+// controller's app role.
+//
+// Only assignments matching the configured appRoleID are returned. This scopes
+// the result to assignments this controller owns and avoids reporting (and
+// later removing) assignments created by other mechanisms or with other roles.
+// This set is treated as the "actual" state during full-state reconciliation.
+func (c *Client) ListManagedAssignedGroupIDs(ctx context.Context) (map[string]struct{}, error) {
+	appRoleUUID, err := uuid.Parse(c.appRoleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse app role ID as UUID: %w", err)
+	}
+
+	assigned := make(map[string]struct{})
+	for _, spID := range c.servicePrincipals {
+		result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list app role assignments for SP %s: %w", spID, err)
+		}
+
+		for _, assignment := range result.GetValue() {
+			// Only consider assignments created via this controller's app role.
+			assignmentAppRole := assignment.GetAppRoleId()
+			if assignmentAppRole == nil || *assignmentAppRole != appRoleUUID {
+				continue
+			}
+
+			principalID := assignment.GetPrincipalId()
+			if principalID == nil {
+				continue
+			}
+			assigned[principalID.String()] = struct{}{}
+		}
+	}
+
+	return assigned, nil
+}
+
 // ClearCache clears the group cache
 func (c *Client) ClearCache() {
 	c.mu.Lock()

@@ -251,15 +251,26 @@ In another terminal, create/delete RBAC bindings and watch the controller reconc
 
 ## CI/CD
 
-The `.github/workflows/e2e.yml` runs on PRs touching Go, config, Terraform, or workflows:
+The `.github/workflows/tests.yml` workflow runs on PRs touching Go, config,
+Terraform, or workflows. It has two jobs:
+
+**`unit`** — runs on every PR (including forks), no cloud credentials required:
+
+1. `go fmt`, `go vet`, and `go test ./... -coverprofile cover.out` (via `task test`)
+2. Fails if `go fmt` would change any files
+3. Uploads the coverage report as an artifact
+
+**`e2e`** — runs only after `unit` passes, and only for non-fork PRs:
 
 1. Authenticates via Workload Identity Federation (no secrets)
 2. Downloads signing key from Key Vault
-3. Starts minikube with stable OIDC issuer
+3. Starts a kind cluster with a stable OIDC issuer
 4. Provisions per-run Azure resources
 5. Builds, loads, deploys
-6. Verifies groups in token
-7. Always cleans up with `task e2e:infra-down`
+6. Verifies bound groups appear in the token (`task e2e:verify`)
+7. Verifies deleting a binding removes its group from the token, while a
+   still-bound group remains (`task e2e:verify-deletion`)
+8. Always cleans up with `task e2e:infra-down`
 
 No secrets stored in GitHub.
 
