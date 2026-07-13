@@ -258,8 +258,10 @@ The `.github/workflows/e2e.yml` runs on PRs touching Go, config, Terraform, or w
 3. Starts minikube with stable OIDC issuer
 4. Provisions per-run Azure resources
 5. Builds, loads, deploys
-6. Verifies groups in token
-7. Always cleans up with `task e2e:infra-down`
+6. Verifies bound groups appear in the token (`task e2e:verify`)
+7. Verifies deleting a binding removes its group from the token, while a
+   still-bound group remains (`task e2e:verify-deletion`)
+8. Always cleans up with `task e2e:infra-down`
 
 No secrets stored in GitHub.
 

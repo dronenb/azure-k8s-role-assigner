@@ -140,6 +140,14 @@ jobs:
           TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
         run: task e2e:verify
 
+      - name: Verify deletion removes group from token
+        env:
+          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
+          E2E_TEST_USER_PASSWORD: ${{ env.E2E_TEST_USER_PASSWORD }}
+          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
+          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+        run: task e2e:verify-deletion
+
       - name: Collect diagnostics
         if: always()
         run: |
