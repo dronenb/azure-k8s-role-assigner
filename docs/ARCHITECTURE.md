@@ -4,7 +4,7 @@ This document explains how the controller works today, including its read-only R
 
 ## Purpose
 
-The controller watches Kubernetes RBAC bindings and ensures Azure AD group assignments exist for groups referenced by those bindings, so Entra-issued tokens include the relevant groups for cluster authorization.
+The controller watches Kubernetes RBAC bindings and ensures Microsoft Entra group assignments exist for groups referenced by those bindings, so Entra-issued tokens include the relevant groups for cluster authorization.
 
 In scope:
 
@@ -31,7 +31,7 @@ Each convergence pass:
    are being deleted).
 2. Extracts candidate group IDs from `subjects[].name` where `kind=Group`.
 3. Filters candidates to valid Azure UUIDs only.
-4. Resolves each candidate against Azure AD to its canonical object ID and
+4. Resolves each candidate against Microsoft Entra ID to its canonical object ID and
    assigns it to the configured service principals.
 5. Lists the groups currently assigned to those service principals via the
    controller's app role, and removes any that are no longer in the desired set.
@@ -141,7 +141,7 @@ Given the requirement to keep permissions narrow and implementation simple, peri
 
 ## Operational Notes
 
-- This controller expects `subject.name` for `Group` subjects to be Azure AD group object IDs.
+- This controller expects `subject.name` for `Group` subjects to be Microsoft Entra group object IDs.
 - If your RBAC definitions use names that are not Azure UUIDs, they are intentionally ignored by design.
 - The controller does not mutate `RoleBinding` or `ClusterRoleBinding` objects.
 

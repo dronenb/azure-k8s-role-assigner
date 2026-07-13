@@ -7,10 +7,11 @@ This directory contains **per-run** Entra ID resources provisioned by OpenTofu d
 | Resource                                                             | Purpose                                                                      |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Controller app registration + SP                                     | The identity the controller authenticates as (WIF via projected SA token)    |
-| Federated identity credential                                        | Links the minikube service account to the controller app via OIDC issuer URL |
+| Federated identity credential                                        | Links the controller service account to the controller app via OIDC issuer URL |
 | Graph API grants (`Group.Read.All`, `Application.ReadWrite.OwnedBy`) | Controller permissions to read groups and manage app role assignments        |
 | Cluster app registration + SP                                        | Represents the "cluster" resource — groups are assigned app roles on this SP |
 | `Cluster.Access` app role                                            | Custom app role on the cluster app (assigned to groups by the controller)    |
+| Delegated Graph permission grant                                     | Allows the static e2e user to obtain ROPC tokens without interactive consent |
 
 Test groups are **not** created here — they come from the static infra (`tofu/`) and are passed through as variables.
 The e2e verification user is also **not** created here — it comes from static infra and is used by the verify step via ROPC.
@@ -39,8 +40,8 @@ The e2e verification user is also **not** created here — it comes from static 
                                │           cluster_app_role_id, group IDs
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        Minikube Cluster                                  │
-│  Started with --service-account-signing-key-file (stable key)           │
+│                          kind Cluster                                    │
+│  Started with a stable service-account signing key when available        │
 │  SA issuer matches OIDC issuer URL from static infra                    │
 │  Controller pod authenticates via projected SA token → WIF              │
 │  RBAC bindings reference test group object IDs                          │
@@ -53,8 +54,12 @@ The e2e verification user is also **not** created here — it comes from static 
 ### Automated (via Taskfile)
 
 ```bash
-# Full suite (infra-up through infra-down)
+# Full suite (infra-up through verification)
 task e2e
+
+# Cleanup after a local run
+task e2e:cleanup
+task e2e:infra-down
 
 # Individual steps
 task e2e:infra-up       # tofu apply in e2e/tofu/
@@ -93,8 +98,9 @@ tofu destroy
 
 | Output                    | Description                                                      |
 | ------------------------- | ---------------------------------------------------------------- |
-| `tenant_id`               | Azure AD tenant ID                                               |
+| `tenant_id`               | Microsoft Entra tenant ID                                        |
 | `controller_client_id`    | Client ID the controller authenticates as                        |
+| `cluster_app_client_id`   | Client ID of the cluster app used as the OIDC token audience      |
 | `cluster_sp_object_id`    | SP where app role assignments are created                        |
 | `cluster_app_role_id`     | ID of the `Cluster.Access` app role                              |
 | `test_group_crb_id`       | Object ID of ClusterRoleBinding group (pass-through)             |

@@ -8,27 +8,18 @@ To test the controller, you need:
 
 1. **Your own OIDC issuer** (serving OIDC discovery + JWKS for Kubernetes SA tokens)
 2. **A signing key** (RSA private key matching your JWKS)
-3. **A test client app** (Azure AD app registration used as the Kubernetes API audience)
-4. **A static test user** (Azure AD user for ROPC token acquisition)
-5. **Two test groups** (security groups with your test user as a member)
+3. **A static test user** (Microsoft Entra user for ROPC token acquisition)
+4. **Two test groups** (security groups with your test user as a member)
 
-Everything is created in your own Azure AD tenant — no special permissions or static infrastructure required.
+Per-run controller and cluster authentication apps are created by `task e2e` through `e2e/tofu/`. Your identity still needs permission to create app registrations, grant the required Microsoft Graph permissions, and create app role assignments.
 
 ### Step 1: Create your test resources (one-time)
-
-**Create the test client app:**
-
-```bash
-az login
-
-az ad app create --display-name "my-e2e-test-client"
-TEST_CLIENT_OBJECT_ID="<copy the object ID>"
-TEST_CLIENT_ID="<copy the client ID>"
-```
 
 **Create a static test user:**
 
 ```bash
+az login
+
 TEST_USER_UPN="my-e2e-test-user@<your-tenant-domain>"
 TEST_USER_PASSWORD="<strong-password>"
 
@@ -54,7 +45,7 @@ az ad group member add --group "$TEST_GROUP_CRB_ID" --member-id "$TEST_USER_OBJE
 az ad group member add --group "$TEST_GROUP_RB_ID" --member-id "$TEST_USER_OBJECT_ID"
 ```
 
-The test client app is still required as the token audience (`api://<client-id>`), but token acquisition for verification uses the static user via ROPC.
+The cluster authentication app used as the token audience is created dynamically by `e2e/tofu/`; token acquisition for verification uses the static user via ROPC.
 
 ### Why e2e uses a user (ROPC) instead of a service principal
 
@@ -89,7 +80,6 @@ chmod 600 .e2e/sa-signing.key
 ### Step 4: Run tests
 
 ```bash
-export TEST_CLIENT_ID="..."
 export E2E_TEST_USER_UPN="..."
 export E2E_TEST_USER_PASSWORD="..."
 export TEST_GROUP_CRB_ID="..."
@@ -100,7 +90,7 @@ az login
 task e2e
 ```
 
-That's all you need. Everything else is automated.
+With those prerequisites and sufficient Entra permissions, the remaining e2e setup is automated.
 
 ## Creating Your Own OIDC Issuer
 
@@ -191,7 +181,7 @@ Now follow the quick start above with your new issuer URL.
 
 ## For Project Maintainers: Optional Static Infrastructure
 
-The project maintains a **static infrastructure** in `tofu/` that provides a shared OIDC issuer, signing key, test client app, and static test user. This is entirely optional and exists for transparency and CI/CD consistency — not because contributors need it.
+The project maintains a **static infrastructure** in `tofu/` that provides a shared OIDC issuer, signing key, static test user, and test groups. This is entirely optional and exists for transparency and CI/CD consistency — not because contributors need it.
 
 ### Benefits of static infrastructure
 
@@ -225,7 +215,9 @@ To set up the static infrastructure in your own environment:
 ```bash
 cd tofu/
 tofu init
-tofu apply -var="subscription_id=<YOUR_SUBSCRIPTION_ID>"
+tofu apply \
+  -var="billing_scope_id=<YOUR_BILLING_SCOPE_ID>" \
+  -var="subscription_id=<YOUR_SUBSCRIPTION_ID>"
 ./bootstrap.ps1 -GhaSpObjectId "$(tofu output -raw github_actions_object_id)"
 ```
 
@@ -236,9 +228,9 @@ See [`tofu/README.md`](tofu/README.md) for details.
 For quick iteration without running the full test suite:
 
 ```bash
-# Ensure cluster and infra are provisioned
-task e2e:cluster-up
+# Ensure infra and cluster are provisioned
 task e2e:infra-up
+task e2e:cluster-up
 
 # Get environment variables
 eval "$(task e2e:infra-output)"
@@ -252,7 +244,7 @@ In another terminal, create/delete RBAC bindings and watch the controller reconc
 ## CI/CD
 
 The `.github/workflows/tests.yml` workflow runs on PRs touching Go, config,
-Terraform, or workflows. It has two jobs:
+OpenTofu, Taskfile, or workflow files. It has two jobs:
 
 **`unit`** — runs on every PR (including forks), no cloud credentials required:
 
@@ -281,7 +273,7 @@ No secrets stored in GitHub.
 ```text
 ┌─────────────────────┐          ┌──────────────────┐
 │  K8s Service Account │          │  Azure Entra ID  │
-│  (minikube)         │──token──▶ │  (validates)     │
+│  (kind)             │──token──▶ │  (validates)     │
 │                     │           │                  │
 └─────────────────────┘           └────┬─────────────┘
                                        │
@@ -295,22 +287,22 @@ No secrets stored in GitHub.
                          └──────────────────────┘
 ```
 
-1. Minikube signs SA tokens with your RSA signing key
+1. kind signs SA tokens with your RSA signing key when a stable key is provided
 2. Azure fetches the JWKS from your OIDC issuer to verify the signature
 3. Federated identity credential trusts the issuer + subject
 4. Azure issues an access token to the controller
 5. Controller uses the token to call Microsoft Graph
 
-**Key point:** The JWKS at your issuer must match the signing key minikube uses. If using the project's stable key, both are aligned automatically.
+**Key point:** The JWKS at your issuer must match the signing key the cluster uses. If using the project's stable key, both are aligned automatically.
 
 ### Workload Identity Federation
 
-- **No client secrets** — Tokens are bound to projected service account identities
-- **No Key Vault overhead** — Minikube generates/signs tokens locally
+- **No controller client secrets** — the controller authenticates with projected service account tokens
+- **Fresh verification tokens** — kubelogin cache is cleared between attempts
 - **Automatic cleanup** — `task e2e:infra-down` destroys all per-run resources
 
 ## Notes
 
 - **Stable signing key**: Azure caches JWKS for up to 24h. Use a stable key to avoid race conditions at cluster startup.
-- **Group Object IDs**: RBAC bindings expect Azure AD group Object IDs (UUIDs), not names.
+- **Group Object IDs**: RBAC bindings expect Microsoft Entra group Object IDs (UUIDs), not names.
 - **Per-run cleanup**: `tofu destroy` in `e2e/tofu/` always removes Azure resources, regardless of test outcome.

@@ -6,16 +6,16 @@ This directory contains the **one-time provisioned** infrastructure for CI/CD an
 
 - Azure subscription (`*-ci`): Dedicated subscription for all CI resources.
 - Resource group (`*-ci`): Container for Azure resources.
-- RSA 2048-bit signing key (`tls_private_key`): Stable SA token signing key for minikube OIDC.
+- RSA 2048-bit signing key (`tls_private_key`): Stable service account token signing key for kind OIDC tests.
 - Key Vault (`kv-k8sroleassigner`): Stores the private signing key as a secret.
 - Storage account + static website: Hosts OIDC discovery (`.well-known/openid-configuration`) and JWKS (`openid/v1/jwks`).
 - GitHub Actions app registration + service principal: WIF identity for CI (federated for PR + main branch).
 - Federated identity credentials: OIDC trust for `repo:<org>/<repo>:pull_request` and `:ref:refs/heads/main`.
 - Key Vault role assignment: GHA SP gets `Key Vault Secrets User` to download the signing key.
-- Graph API role assignment: GHA SP gets `Application.ReadWrite.OwnedBy` (create/delete owned apps per run).
+- Graph API role assignments: GHA SP gets `Application.ReadWrite.OwnedBy`, `User.Read.All`, and `DelegatedPermissionGrant.ReadWrite.All` for per-run e2e provisioning.
 - Static e2e test user: User principal used by e2e verification via ROPC.
-- Conditional Access policy + named location: Restricts e2e test user sign-ins to GitHub Actions runner IP ranges.
-- Two Entra security groups: Persistent test groups (`*-e2e-admins`, `*-e2e-developers`).
+- Named locations for GitHub Actions runner IP ranges. The Conditional Access policy that would restrict the e2e test user to those ranges is present in code but currently commented out.
+- Two Entra security groups used by RoleBinding/ClusterRoleBinding tests, plus filler groups that push the static test user over the 200-group token overage threshold.
 - State backend storage account + container: Remote OpenTofu state storage (for migration from local state).
 - GitHub repo variables: Automatically set via `gh variable set` on apply.
 
@@ -26,7 +26,7 @@ This directory contains the **one-time provisioned** infrastructure for CI/CD an
 - `gh` CLI authenticated (for setting repository variables)
 - Python 3 (for the JWKS generation script)
 - Permissions:
-  - Azure AD: create app registrations, grant admin consent, create groups
+  - Microsoft Entra ID: create app registrations, grant admin consent, create groups
   - Azure: create resource groups, storage accounts, key vaults in the target subscription
 
 ## Usage
@@ -34,7 +34,9 @@ This directory contains the **one-time provisioned** infrastructure for CI/CD an
 ```bash
 cd tofu/
 tofu init
-tofu apply -var="subscription_id=$(az account show --query id -o tsv)"
+tofu apply \
+  -var="billing_scope_id=<your-billing-scope-id>" \
+  -var="subscription_id=$(az account show --query id -o tsv)"
 ```
 
 On first apply, a dedicated subscription is created and all resources are provisioned within it. GitHub repository variables are set by the bootstrap script after apply.
@@ -87,7 +89,7 @@ tofu init && \
 
 - `github_actions_client_id`: Client ID for WIF login.
 - `github_actions_object_id`: Object ID of GHA SP (used by bootstrap script).
-- `tenant_id`: Azure AD tenant ID.
+- `tenant_id`: Microsoft Entra tenant ID.
 - `subscription_id`: Azure subscription ID.
 - `oidc_issuer_url`: Storage account static website URL (OIDC issuer).
 - `key_vault_name`: Key Vault name.
@@ -99,24 +101,23 @@ tofu init && \
 - `e2e_test_user_object_id`: Object ID of the static e2e test user.
 - `e2e_test_user_upn`: UPN of the static e2e test user.
 - `github_actions_named_location_id`: Named location IDs containing GitHub Actions runner IP CIDRs.
-- `e2e_test_user_conditional_access_policy_id`: Conditional Access policy ID that blocks the e2e user outside GitHub runner IPs.
 - `tfstate_storage_account_name`: Storage account for remote state backend.
 - `tfstate_container_name`: Container name for remote state backend.
 - `tfstate_resource_group_name`: Resource group for remote state backend.
 
-## Conditional Access Policy
+## GitHub Actions Named Locations
 
-The static stack manages a Conditional Access policy that enforces a narrow sign-in boundary for the e2e test user:
+The static stack manages named locations for GitHub Actions hosted runner IP ranges:
 
 - A named location is built from `https://api.github.com/meta` runner IP ranges.
-- The policy targets only the static e2e test user.
-- Sign-ins are blocked when source IP is not in the GitHub Actions named location.
+- Large CIDR lists are split across multiple named locations to stay within policy size limits.
+- The Conditional Access policy that would target the static e2e test user and block non-GitHub source IPs is currently commented out in `main.tf`.
 
-This keeps ROPC usable for CI while preventing general use from non-GitHub source IPs.
+If you enable that policy, it keeps ROPC usable for CI while preventing general use from non-GitHub source IPs.
 
 ## Bootstrap: Limited Consent Policy
 
-After `tofu apply`, run the PowerShell bootstrap script to create a limited consent policy. This allows the GHA SP to grant **only** `Group.Read.All` and `Application.ReadWrite.OwnedBy` to per-run e2e apps — without requiring full tenant admin:
+After `tofu apply`, run the PowerShell bootstrap script to create a limited consent policy. This allows the GHA SP to grant **only** `Group.Read.All`, `Application.ReadWrite.OwnedBy`, and delegated `email`/`openid`/`profile` scopes needed by per-run e2e apps — without requiring full tenant admin:
 
 ```powershell
 ./bootstrap.ps1 -GhaSpObjectId "$(tofu output -raw github_actions_object_id)"
@@ -124,7 +125,7 @@ After `tofu apply`, run the PowerShell bootstrap script to create a limited cons
 
 This creates:
 
-1. A permission grant policy scoped to only those two Graph app roles
+1. A permission grant policy scoped to only those Graph app roles and delegated scopes
 2. A custom directory role that allows granting consent under that policy
 3. An assignment of that role to the GHA SP
 
@@ -132,11 +133,11 @@ This is idempotent — safe to re-run.
 
 ## Architecture: Why a stable signing key?
 
-Minikube service account tokens must be verifiable by Azure AD (Entra ID) for Workload Identity Federation. Azure caches JWKS documents and can take up to 24 hours to pick up a new key. By using a **stable RSA key** stored in Key Vault:
+Kubernetes service account tokens must be verifiable by Microsoft Entra ID for Workload Identity Federation. Azure caches JWKS documents and can take up to 24 hours to pick up a new key. By using a **stable RSA key** stored in Key Vault:
 
 - The OIDC discovery + JWKS are written once to the storage account static website and remain valid across all CI runs.
-- There is no race condition between starting minikube and Azure accepting the projected SA token.
-- Contributors can download the signing key and start minikube with `--extra-config=apiserver.service-account-signing-key-file=<key>`.
+- There is no race condition between starting kind and Azure accepting the projected SA token.
+- CI and maintainers can download the signing key before `task e2e:cluster-up`; the Taskfile mounts it into the kind control plane when present.
 
 ## File layout
 

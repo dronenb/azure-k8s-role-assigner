@@ -17,7 +17,7 @@
 task build      # Build the manager binary
 task test       # Run unit tests (fmt + vet first)
 task run        # Run the controller locally
-task build-image  # Build and push container image via ko
+task build-image  # Build an OCI image tarball via ko
 ```
 
 Run `task --list` to see all available tasks.
@@ -51,7 +51,7 @@ E2E tests run against a real `kind` cluster with real Azure Entra ID resources, 
 
 ### Quick start for contributors
 
-You must create your own test resources in your Azure AD tenant (one-time setup):
+You must create your own test resources in your Microsoft Entra tenant (one-time setup):
 
 **1. Create two test groups and add the test user to them:**
 
@@ -126,6 +126,8 @@ export AZURE_APP_ROLE_ID="$(cd e2e/tofu && tofu output -raw cluster_app_role_id)
 task e2e:ci  # Downloads key from Key Vault, then runs full suite
 ```
 
+`AZURE_APP_ROLE_ID` is shown for ad hoc/local deployment flows. `task e2e:ci` derives the dynamic value from `e2e/tofu` during deployment.
+
 ### Setting up static infrastructure (optional, project admins only)
 
 The project maintains optional static infrastructure in `tofu/` for transparency and CI consistency. If you're a project maintainer:
@@ -133,7 +135,9 @@ The project maintains optional static infrastructure in `tofu/` for transparency
 ```bash
 cd tofu/
 tofu init
-tofu apply -var="subscription_id=<your-subscription-id>"
+tofu apply \
+  -var="billing_scope_id=<your-billing-scope-id>" \
+  -var="subscription_id=<your-subscription-id>"
 ./bootstrap.ps1 -GhaSpObjectId "$(tofu output -raw github_actions_object_id)"
 ```
 
