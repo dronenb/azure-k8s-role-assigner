@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+      DOCKER_CONFIG: /tmp/docker-config
 
     steps:
       - name: Checkout
