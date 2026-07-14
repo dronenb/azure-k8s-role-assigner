@@ -335,13 +335,28 @@ tasks:
       - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
         msg: "E2E_TEST_USER_UPN must be set (from tofu/ outputs)"
     cmds:
-      - >-
-        tofu destroy -auto-approve -input=false
-        -var="oidc_issuer_url={{.OIDC_ISSUER_URL}}"
-        -var="static_oidc_issuer_url={{.OIDC_ISSUER_URL}}"
-        -var="test_group_crb_id={{.TEST_GROUP_CRB_ID | default "placeholder"}}"
-        -var="test_group_rb_id={{.TEST_GROUP_RB_ID | default "placeholder"}}"
-        -var="e2e_test_user_upn={{.E2E_TEST_USER_UPN}}"
+      - |
+        set -euo pipefail
+
+        for attempt in 1 2 3; do
+          if tofu destroy -auto-approve -input=false \
+            -var="oidc_issuer_url={{.OIDC_ISSUER_URL}}" \
+            -var="static_oidc_issuer_url={{.OIDC_ISSUER_URL}}" \
+            -var="test_group_crb_id={{.TEST_GROUP_CRB_ID | default "placeholder"}}" \
+            -var="test_group_rb_id={{.TEST_GROUP_RB_ID | default "placeholder"}}" \
+            -var="e2e_test_user_upn={{.E2E_TEST_USER_UPN}}"; then
+            exit 0
+          fi
+
+          if [ "$attempt" -eq 3 ]; then
+            echo "OpenTofu destroy failed after ${attempt} attempts" >&2
+            exit 1
+          fi
+
+          sleep_seconds=$((attempt * 20))
+          echo "OpenTofu destroy failed; retrying in ${sleep_seconds}s (${attempt}/3)" >&2
+          sleep "$sleep_seconds"
+        done
 
   e2e:infra-output:
     desc: Export OpenTofu outputs as environment variables.
