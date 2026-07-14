@@ -13,7 +13,6 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
-  security-events: write
   statuses: write
 
 concurrency:
@@ -103,10 +102,3 @@ jobs:
           path: |
             megalinter-reports
             mega-linter.log
-
-      - name: Upload MegaLinter SARIF to GitHub
-        if: always() && github.event_name != 'push' && hashFiles('megalinter-reports/megalinter-report.sarif') != ''
-        # Check latest v4: SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
-        uses: github/codeql-action/upload-sarif@1ad29ea4a422cce9a242a9fae469541dcd08addc # v4
-        with:
-          sarif_file: megalinter-reports/megalinter-report.sarif
