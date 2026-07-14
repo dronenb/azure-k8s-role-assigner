@@ -85,6 +85,7 @@ jobs:
             files+=(.github/scripts/mega-linter-runner)
             files+=(charts/azure-k8s-role-assigner/Chart.yaml)
             files+=(tofu/main.tf)
+            files+=(tofu/bootstrap.ps1)
             files+=(internal/controller/reconcile_state.go)
           fi
           if [ "${#files[@]}" -eq 0 ]; then
