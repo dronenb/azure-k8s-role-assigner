@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   prek:
+    if: github.event_name != 'pull_request' || github.event.pull_request.changed_files > 0
     runs-on: ubuntu-26.04
     steps:
       - name: Checkout
