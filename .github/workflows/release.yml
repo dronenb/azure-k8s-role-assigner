@@ -19,6 +19,8 @@ jobs:
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release-candidate')
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+    env:
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
 
     steps:
       - name: Checkout
@@ -44,6 +46,11 @@ jobs:
           curl -sSfL https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz \
             | tar -xz --strip-components=1 -C /usr/local/bin git-cliff-2.13.1-x86_64-unknown-linux-gnu/git-cliff
 
+      - name: Install Helm
+        run: |
+          curl -sSfL https://get.helm.sh/helm-v4.2.3-linux-amd64.tar.gz | tar xzf - -C /tmp
+          sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
+
       - name: Determine next version
         id: version
         run: |
@@ -52,7 +59,21 @@ jobs:
           echo "Next version: ${NEXT_VERSION}"
 
       - name: Generate release notes
-        run: git-cliff --latest --strip header --unreleased --tag ${{ steps.version.outputs.version }} > /tmp/release-notes.md
+        run: |
+          git-cliff --latest --strip header --unreleased --tag ${{ steps.version.outputs.version }} > /tmp/release-notes-base.md
+          cp /tmp/release-notes-base.md /tmp/release-notes.md
+          .github/scripts/append-release-notes-footer "${{ steps.version.outputs.version }}" /tmp/release-notes.md
+
+      - name: Package Helm chart
+        run: |
+          CHART_VERSION="${VERSION#v}"
+          helm lint charts/azure-k8s-role-assigner
+          helm package charts/azure-k8s-role-assigner \
+            --version "$CHART_VERSION" \
+            --app-version "$VERSION" \
+            --destination dist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
 
       - name: Create and push tag
         run: |
@@ -61,6 +82,9 @@ jobs:
           git tag -a "${{ steps.version.outputs.version }}" -m "Release ${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.version }}"
 
+      - name: Prepare registry auth config
+        run: mkdir -p "$DOCKER_CONFIG"
+
       - name: Login to GHCR
         # Check latest: TAG=$(gh api repos/redhat-actions/podman-login/releases/latest --jq .tag_name); SHA=$(gh api repos/redhat-actions/podman-login/git/ref/tags/$TAG --jq .object.sha); echo "redhat-actions/podman-login@$SHA # $TAG"
         uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
@@ -68,6 +92,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+          auth_file_path: ${{ env.DOCKER_CONFIG }}/config.json
+
+      - name: Push Helm chart
+        id: chart
+        run: |
+          helm push dist/azure-k8s-role-assigner-*.tgz oci://ghcr.io/dronenb/charts --registry-config "$DOCKER_CONFIG/config.json" | tee /tmp/helm-push.txt
+          CHART_DIGEST=""
+          while IFS= read -r line; do
+            case "$line" in
+              "Digest: "*) CHART_DIGEST="${line#Digest: }" ;;
+            esac
+          done < /tmp/helm-push.txt
+          if [ -z "$CHART_DIGEST" ]; then
+            echo "Failed to determine Helm chart digest" >&2
+            exit 1
+          fi
+          echo "digest=${CHART_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Run GoReleaser
         # Check latest: TAG=$(gh api repos/goreleaser/goreleaser-action/releases/latest --jq .tag_name); SHA=$(gh api repos/goreleaser/goreleaser-action/git/ref/tags/$TAG --jq .object.sha); echo "goreleaser/goreleaser-action@$SHA # $TAG"
@@ -80,3 +121,38 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KO_DOCKER_REPO: ghcr.io/dronenb/azure-k8s-role-assigner
           COSIGN_YES: "true"
+
+      - name: Upload Helm chart to GitHub Release
+        run: gh release upload "${{ steps.version.outputs.version }}" dist/azure-k8s-role-assigner-*.tgz --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release notes with published digests
+        run: |
+          IMAGE_DIGEST=""
+          while IFS= read -r line; do
+            case "$line" in
+              *"ghcr.io/dronenb/azure-k8s-role-assigner:${VERSION}"*)
+                for field in $line; do
+                  case "$field" in
+                    *@sha256:*) IMAGE_DIGEST="${field##*@}" ;;
+                    sha256:*) IMAGE_DIGEST="$field" ;;
+                  esac
+                done
+                if [ -n "$IMAGE_DIGEST" ]; then
+                  break
+                fi
+                ;;
+            esac
+          done < dist/azure-k8s-role-assigner_digests.txt
+          if [ -z "$IMAGE_DIGEST" ]; then
+            echo "Failed to determine image digest" >&2
+            exit 1
+          fi
+          cp /tmp/release-notes-base.md /tmp/release-notes.md
+          .github/scripts/append-release-notes-footer "$VERSION" /tmp/release-notes.md "$IMAGE_DIGEST" "${CHART_DIGEST}"
+          gh release edit "$VERSION" --notes-file /tmp/release-notes.md
+        env:
+          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}

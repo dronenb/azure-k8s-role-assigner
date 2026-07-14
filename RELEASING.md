@@ -58,7 +58,9 @@ The `Release Preview` workflow runs on PR open, synchronize, or label events whe
 It does three things:
 
 - computes the next semantic version with `git-cliff --bumped-version`
-- generates release notes with `git-cliff --latest --strip header --unreleased --tag <version>`
+- generates changelog entries with `git-cliff --latest --strip header --unreleased --tag <version>`
+- appends image, Helm chart, and cosign verification instructions to the release notes
+- packages the Helm chart with the computed version and app version
 - runs `goreleaser release --clean --snapshot --skip=publish`
 
 Review the preview comment before merging. It should show the expected version and release notes, and the GoReleaser dry run should pass.
@@ -71,11 +73,16 @@ The release workflow:
 
 - computes the next version with `git-cliff --bumped-version`
 - creates and pushes an annotated tag such as `v1.2.0`
-- generates release notes with `git-cliff`
+- generates release notes with `git-cliff` and appends image, Helm chart, and cosign verification instructions
+- logs in to GHCR once using a shared Docker-compatible registry auth file
 - builds the Linux `amd64` and `arm64` binaries
 - builds and pushes the multi-arch container image to `ghcr.io/dronenb/azure-k8s-role-assigner`
+- writes the published image digest to `azure-k8s-role-assigner_digests.txt`
+- packages the Helm chart using the release version
+- pushes the Helm chart to GHCR as an OCI artifact
 - signs checksums and container manifests with keyless cosign
-- creates the GitHub Release
+- creates the GitHub Release and uploads the packaged Helm chart
+- updates the GitHub Release notes with digest-pinned image and chart artifact references after publishing completes
 
 ## Versioning Rules
 
@@ -93,8 +100,10 @@ The empty release commit uses `chore:` so it does not change the computed versio
 | Artifact | Location |
 | --- | --- |
 | `manager` Linux binary | GitHub Release assets |
-| Container image | `ghcr.io/dronenb/azure-k8s-role-assigner:<version>` |
+| Container image | `ghcr.io/dronenb/azure-k8s-role-assigner@sha256:<digest>` in final release notes |
 | `latest` container tag | `ghcr.io/dronenb/azure-k8s-role-assigner:latest` |
+| Helm chart OCI artifact | `ghcr.io/dronenb/charts/azure-k8s-role-assigner@sha256:<digest>` in final release notes |
+| Helm chart package | GitHub Release assets |
 | Checksum signature bundle | `*.sigstore.json` release asset |
 | Image signature | Attached to the OCI manifest in GHCR |
 
@@ -103,9 +112,25 @@ The empty release commit uses `chore:` so it does not change the computed versio
 Verify the container image:
 
 ```bash
-cosign verify ghcr.io/dronenb/azure-k8s-role-assigner:<version> \
+cosign verify ghcr.io/dronenb/azure-k8s-role-assigner@sha256:<digest> \
   --certificate-identity-regexp="https://github.com/dronenb/azure-k8s-role-assigner" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+```
+
+Pull the Helm chart from GHCR. Use the versioned chart reference for Helm commands, and compare the digest with the digest listed in the final release notes:
+
+```bash
+helm pull oci://ghcr.io/dronenb/charts/azure-k8s-role-assigner --version <version-without-v>
+```
+
+Install the Helm chart from GHCR:
+
+```bash
+helm upgrade --install azure-k8s-role-assigner \
+  oci://ghcr.io/dronenb/charts/azure-k8s-role-assigner \
+  --version <version-without-v> \
+  --namespace azure-k8s-role-assigner \
+  --create-namespace
 ```
 
 Verify a release binary against its signature bundle:
