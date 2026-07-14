@@ -36,12 +36,6 @@ variable "oidc_issuer_url" {
   type        = string
 }
 
-variable "static_oidc_issuer_url" {
-  description = "Static OIDC issuer URL from static infra; when equal to `oidc_issuer_url`, dynamic test-client credential will be skipped"
-  type        = string
-  default     = ""
-}
-
 variable "service_account_namespace" {
   description = "Namespace of controller service account for federated identity credential"
   type        = string
