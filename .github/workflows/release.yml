@@ -55,13 +55,13 @@ jobs:
       - name: Determine next version
         id: version
         run: |
-          NEXT_VERSION="$(git-cliff --bumped-version)"
+          NEXT_VERSION="$(git-cliff --config .cliff.yml --bumped-version)"
           echo "version=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Next version: ${NEXT_VERSION}"
 
       - name: Generate release notes
         run: |
-          git-cliff --latest --strip header --unreleased --tag ${{ steps.version.outputs.version }} > /tmp/release-notes-base.md
+          git-cliff --config .cliff.yml --latest --strip header --unreleased --tag ${{ steps.version.outputs.version }} > /tmp/release-notes-base.md
           cp /tmp/release-notes-base.md /tmp/release-notes.md
           .github/scripts/append-release-notes-footer "${{ steps.version.outputs.version }}" /tmp/release-notes.md
 
