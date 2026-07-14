@@ -81,7 +81,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.17.0
-          args: release --clean --snapshot --skip=publish
+          args: release --clean --snapshot --skip=publish,sign
         env:
           KO_DOCKER_REPO: ghcr.io/dronenb/azure-k8s-role-assigner
 
