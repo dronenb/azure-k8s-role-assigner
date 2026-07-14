@@ -57,4 +57,10 @@ TERRAFORM_TFLINT_UNSECURED_ENV_VARIABLES: GITHUB_TOKEN
 ACTION_ZIZMOR_UNSECURED_ENV_VARIABLES:
   - GITHUB_TOKEN
 
+ACTION_ZIZMOR_ARGUMENTS: >-
+  --persona=pedantic
+  --min-severity informational
+  --min-confidence low
+  --strict-collection
+
 GO_GOLANGCI_LINT_ARGUMENTS: --timeout=10m

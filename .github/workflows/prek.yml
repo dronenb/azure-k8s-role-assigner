@@ -11,10 +11,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
-  security-events: write
-  statuses: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -22,8 +18,15 @@ concurrency:
 
 jobs:
   prek:
+    name: prek
     if: github.event_name != 'pull_request' || github.event.pull_request.changed_files > 0
     runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      issues: write # MegaLinter PR comments and setup-comment cleanup.
+      pull-requests: write # MegaLinter pull request reporter.
+      security-events: write # MegaLinter SARIF upload to code scanning.
+      statuses: write # MegaLinter GitHub status reporter.
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
