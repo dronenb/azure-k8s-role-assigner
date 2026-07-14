@@ -1,5 +1,8 @@
 ENABLE_LINTERS:
-  - ACTION_ACTIONLINT
+  # Disabled until actionlint supports ubuntu-26.04:
+  # https://github.com/rhysd/actionlint/pull/683
+  # - ACTION_ACTIONLINT
+  - ACTION_ZIZMOR
   - BASH_EXEC
   - BASH_SHELLCHECK
   - BASH_SHFMT
@@ -49,5 +52,8 @@ KUBERNETES_HELM_ARGUMENTS: charts/azure-k8s-role-assigner
 KUBERNETES_DIRECTORY: charts/azure-k8s-role-assigner
 
 TERRAFORM_TFLINT_UNSECURED_ENV_VARIABLES: GITHUB_TOKEN
+
+ACTION_ZIZMOR_UNSECURED_ENV_VARIABLES:
+  - GITHUB_TOKEN
 
 GO_GOLANGCI_LINT_ARGUMENTS: --timeout=10m
