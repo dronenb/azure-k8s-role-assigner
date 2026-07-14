@@ -712,3 +712,46 @@ tasks:
     desc: Print the next semantic version based on conventional commits.
     cmds:
       - git-cliff --bumped-version
+
+  release:pr:
+    desc: Create an empty release-candidate PR for the next git-cliff version.
+    vars:
+      BASE_BRANCH: '{{.BASE_BRANCH | default "main"}}'
+      RELEASE_BRANCH: '{{.RELEASE_BRANCH | default ""}}'
+    cmds:
+      - |
+        set -euo pipefail
+
+        for cmd in git gh git-cliff; do
+          if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "Missing required command: $cmd" >&2
+            exit 1
+          fi
+        done
+
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+          echo "Working tree is dirty. Commit, stash, or discard changes before creating a release PR." >&2
+          exit 1
+        fi
+
+        BASE_BRANCH="{{.BASE_BRANCH}}"
+        NEXT_VERSION="$(git-cliff --bumped-version)"
+        RELEASE_BRANCH="{{.RELEASE_BRANCH}}"
+        if [ -z "$RELEASE_BRANCH" ]; then
+          RELEASE_BRANCH="release/${NEXT_VERSION}"
+        fi
+
+        git fetch origin "$BASE_BRANCH"
+        git switch "$BASE_BRANCH"
+        git pull --ff-only origin "$BASE_BRANCH"
+        git switch -c "$RELEASE_BRANCH"
+        git commit --allow-empty -m "chore: release ${NEXT_VERSION}"
+        git push -u origin "$RELEASE_BRANCH"
+
+        PR_URL="$(gh pr create \
+          --base "$BASE_BRANCH" \
+          --head "$RELEASE_BRANCH" \
+          --title "chore: release ${NEXT_VERSION}" \
+          --body "Release candidate for ${NEXT_VERSION}. Merge this PR after the release preview and CI pass.")"
+        gh pr edit "$PR_URL" --add-label release-candidate
+        echo "$PR_URL"
