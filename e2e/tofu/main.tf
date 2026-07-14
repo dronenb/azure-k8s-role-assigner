@@ -32,7 +32,7 @@ variable "name_suffix" {
 }
 
 variable "oidc_issuer_url" {
-  description = "OIDC issuer URL for minikube service account tokens"
+  description = "OIDC issuer URL for Kubernetes service account tokens"
   type        = string
 }
 

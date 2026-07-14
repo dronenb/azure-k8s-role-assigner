@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "azure-k8s-role-assigner.fullname" . }}-metrics
+  namespace: {{ include "azure-k8s-role-assigner.namespace" . }}
+  labels:
+    {{- include "azure-k8s-role-assigner.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: {{ .Values.service.metrics.port }}
+      targetPort: metrics
+  selector:
+    {{- include "azure-k8s-role-assigner.selectorLabels" . | nindent 4 }}

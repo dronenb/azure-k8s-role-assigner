@@ -51,7 +51,7 @@ For detailed reconciliation behavior (read-only Kubernetes RBAC, no finalizers, 
 
 ### 1. Configure Azure Workload Identity
 
-Edit [config/deployment.yaml](config/deployment.yaml), update the ServiceAccount annotation, and set the required environment variables. The checked-in manifest includes placeholders for most values; add `AZURE_APP_ROLE_ID` if it is not already present in your copy.
+Configure the Helm values for the controller ServiceAccount annotation and required environment variables. The chart defaults include placeholders that must be replaced for a real cluster.
 
 **ServiceAccount annotation (required for Workload Identity):**
 
@@ -113,18 +113,42 @@ az ad app owner add --id <CLUSTER_AUTH_APP_ID> --owner-object-id $CONTROLLER_SP_
 ### 2. Deploy the Controller
 
 ```bash
-kubectl apply -f config/deployment.yaml
+helm upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner \
+  --namespace azure-k8s-role-assigner \
+  --create-namespace \
+  --set-string serviceAccount.annotations.azure\.workload\.identity/client-id=<CONTROLLER_CLIENT_ID> \
+  --set-literal azure.servicePrincipals=<CLUSTER_AUTH_SP_OBJECT_ID> \
+  --set-string azure.appRoleId=<CLUSTER_AUTH_APP_ROLE_ID> \
+  --set-string azure.tenantId=<TENANT_ID>
+```
+
+The chart sets resource requests and limits by default:
+
+```yaml
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 100Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+    ephemeral-storage: 200Mi
 ```
 
 The deployment includes comprehensive security hardening:
 
+- **Recommended labels**: Helm renders `app.kubernetes.io/*` labels on all chart-managed objects
 - **Pod Security Standards**: Namespace enforces the `restricted` profile
 - **Read-only root filesystem**: Container filesystem is immutable
 - **Non-root user**: Runs as UID/GID 65532
 - **Dropped capabilities**: All Linux capabilities dropped
 - **No privilege escalation**: `allowPrivilegeEscalation: false`
 - **Seccomp**: RuntimeDefault seccomp profile applied
+- **Resource bounds**: CPU, memory, and ephemeral storage requests/limits are set by default
 - **Scoped token use**: Service account token mounting is enabled for Workload Identity; the federated token is projected with the `api://AzureADTokenExchange` audience
+- **PodDisruptionBudget**: Enabled by default with `minAvailable: 1`
+- **NetworkPolicy**: Enabled by default and denies ingress unless `networkPolicy.ingress.from` is configured for your metrics scraper
 
 **High Availability:**
 
@@ -166,15 +190,12 @@ If you're running on a cluster without the Azure Workload Identity webhook insta
 If your cluster has OIDC issuer configured but the webhook is not installed:
 
 1. Keep the federated credential configuration from step 1
-2. Manually configure the Workload Identity environment variables in [config/deployment.yaml](config/deployment.yaml):
+2. Manually configure the Workload Identity values in the Helm chart:
    ```yaml
-   env:
-     - name: AZURE_CLIENT_ID
-       value: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-     - name: AZURE_TENANT_ID
-       value: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-     - name: AZURE_FEDERATED_TOKEN_FILE
-       value: /var/run/secrets/azure/tokens/azure-identity-token
+   azure:
+     clientId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+     tenantId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+     federatedTokenFile: /var/run/secrets/azure/tokens/azure-identity-token
    ```
 3. Ensure the service account token volume is mounted (already configured)
 4. Remove or ignore the ServiceAccount annotation and pod label (they won't do anything without the webhook)
@@ -185,15 +206,13 @@ If you cannot use federated credentials at all:
 
 1. Remove or ignore the ServiceAccount annotation: `azure.workload.identity/client-id`
 2. Remove or ignore the pod label: `azure.workload.identity/use: "true"`
-3. Uncomment and set these environment variables in [config/deployment.yaml](config/deployment.yaml):
+3. Set these Helm values:
    ```yaml
-   env:
-     - name: AZURE_CLIENT_ID
-       value: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-     - name: AZURE_CLIENT_SECRET
-       value: "your-client-secret"
-     - name: AZURE_TENANT_ID
-       value: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+   azure:
+     clientId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+     clientSecret: your-client-secret
+     tenantId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+     federatedTokenFile: ""
    ```
 4. Remove the `AZURE_FEDERATED_TOKEN_FILE` environment variable
 5. Remove the azure-identity-token volume and volume mount (not needed for client secret auth)
@@ -219,7 +238,7 @@ If running on Azure VMs or VMSS with managed identity assigned:
 
 ### Environment Variables
 
-The controller supports the following environment variables, normally set on the deployment in [config/deployment.yaml](config/deployment.yaml):
+The controller supports the following environment variables, normally set by the Helm chart values:
 
 - **`AZURE_SERVICE_PRINCIPALS`** (required): Comma-separated list of Microsoft Entra service principal Object IDs
 - **`AZURE_APP_ROLE_ID`** (required): App role ID on the cluster authentication app used when creating group assignments
@@ -243,6 +262,7 @@ The controller supports the following environment variables, normally set on the
 - Go version from [go.mod](go.mod)
 - [Task](https://taskfile.dev/) v3+
 - [ko](https://ko.build/) for image builds
+- [Helm](https://helm.sh/) for Kubernetes deployment
 - kubectl
 - Access to a Kubernetes cluster
 
@@ -263,7 +283,7 @@ task test
 # Build an OCI image tarball with ko
 task build-image IMG=your-registry/azure-k8s-role-assigner TAG=tag IMG_TARBALL=image.tar
 
-# Deploy the checked-in manifest to the current kubeconfig context
+# Deploy the Helm chart to the current kubeconfig context
 task deploy
 ```
 
@@ -292,6 +312,23 @@ task run
 ## Monitoring
 
 The controller exposes metrics on port 8080 at `/metrics` in Prometheus format. Health and readiness probes are available at `/healthz` and `/readyz` on port 8081.
+
+In addition to controller-runtime's baseline metrics, the controller exports low-cardinality metrics for:
+
+- Reconcile health: `azure_k8s_role_assigner_reconcile_total`, `azure_k8s_role_assigner_reconcile_duration_seconds`, and `azure_k8s_role_assigner_last_successful_reconcile_timestamp_seconds`
+- Assignment convergence: `azure_k8s_role_assigner_reconcile_groups_desired`, `azure_k8s_role_assigner_reconcile_groups_actual`, `azure_k8s_role_assigner_reconcile_groups_ensured`, and `azure_k8s_role_assigner_reconcile_groups_to_remove`
+- RBAC input quality: `azure_k8s_role_assigner_group_candidates_total` and `azure_k8s_role_assigner_invalid_group_subjects_total`
+- Microsoft Graph behavior: `azure_k8s_role_assigner_azure_requests_total`, `azure_k8s_role_assigner_azure_request_duration_seconds`, `azure_k8s_role_assigner_assignment_operations_total`, and `azure_k8s_role_assigner_auth_failures_total`
+- Group cache behavior: `azure_k8s_role_assigner_group_cache_entries` and `azure_k8s_role_assigner_group_cache_requests_total`
+
+The Helm chart in [charts/azure-k8s-role-assigner](charts/azure-k8s-role-assigner) can optionally render a Prometheus Operator `PodMonitor`. It is disabled by default:
+
+```bash
+helm template azure-k8s-role-assigner charts/azure-k8s-role-assigner \
+  --set podMonitor.enabled=true
+```
+
+If you enable `PodMonitor`, configure `networkPolicy.ingress.from` to allow your Prometheus pods to scrape the `metrics` port.
 
 ## Troubleshooting
 

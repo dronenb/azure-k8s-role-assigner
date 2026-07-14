@@ -1,0 +1,11 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "azure-k8s-role-assigner.namespace" . }}
+  labels:
+    {{- include "azure-k8s-role-assigner.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: {{ .Values.namespace.podSecurity.enforce | quote }}
+    pod-security.kubernetes.io/audit: {{ .Values.namespace.podSecurity.audit | quote }}
+    pod-security.kubernetes.io/warn: {{ .Values.namespace.podSecurity.warn | quote }}
+{{- end }}

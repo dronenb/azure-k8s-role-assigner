@@ -1,0 +1,74 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/dronenb/azure-k8s-role-assigner
+  tag: latest
+  pullPolicy: Always
+
+nameOverride: ""
+fullnameOverride: ""
+
+namespace:
+  create: true
+  name: azure-k8s-role-assigner
+  podSecurity:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+podLabels:
+  azure.workload.identity/use: "true"
+
+leaderElection: true
+resyncPeriod: 10m
+
+azure:
+  servicePrincipals: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx,yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+  appRoleId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  tenantId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  clientId: ""
+  clientSecret: ""
+  federatedTokenFile: /var/run/secrets/azure/tokens/azure-identity-token
+  authorityHost: https://login.microsoftonline.com/
+  tokenCredentials: prod
+
+extraEnv: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+    ephemeral-storage: 200Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+    ephemeral-storage: 100Mi
+
+service:
+  metrics:
+    port: 8080
+  health:
+    port: 8081
+
+podMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  ingress:
+    from: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

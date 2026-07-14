@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	appmetrics "github.com/dronenb/azure-k8s-role-assigner/internal/metrics"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -30,6 +31,12 @@ type RoleBindingReconciler struct {
 // bindings. The specific object in the request is not used directly; any event
 // (create, update, delete) simply triggers a full-state reconcile.
 func (r *RoleBindingReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	start := time.Now()
+	var reconcileErr error
+	defer func() {
+		appmetrics.ObserveReconcile("rolebinding", start, reconcileErr)
+	}()
+
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling RoleBinding", "namespace", req.Namespace, "name", req.Name)
 
@@ -42,11 +49,13 @@ func (r *RoleBindingReconciler) Reconcile(ctx context.Context, req reconcile.Req
 			logger.Info("RoleBinding not found, likely deleted; running full-state reconcile", "namespace", req.Namespace, "name", req.Name)
 		} else {
 			logger.Error(err, "Failed to get RoleBinding")
+			reconcileErr = err
 			return reconcile.Result{}, err
 		}
 	}
 
 	if err := r.reconcileDesiredState(ctx); err != nil {
+		reconcileErr = err
 		return reconcile.Result{}, err
 	}
 

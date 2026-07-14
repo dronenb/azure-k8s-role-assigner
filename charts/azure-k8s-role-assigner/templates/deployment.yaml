@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "azure-k8s-role-assigner.fullname" . }}
+  namespace: {{ include "azure-k8s-role-assigner.namespace" . }}
+  labels:
+    {{- include "azure-k8s-role-assigner.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "azure-k8s-role-assigner.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "azure-k8s-role-assigner.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "azure-k8s-role-assigner.fullname" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /ko-app/cmd
+          args:
+            {{- if .Values.leaderElection }}
+            - --leader-elect
+            {{- end }}
+            - --resync-period={{ .Values.resyncPeriod }}
+          env:
+            - name: AZURE_SERVICE_PRINCIPALS
+              value: {{ .Values.azure.servicePrincipals | quote }}
+            - name: AZURE_APP_ROLE_ID
+              value: {{ .Values.azure.appRoleId | quote }}
+            - name: AZURE_TENANT_ID
+              value: {{ .Values.azure.tenantId | quote }}
+            {{- if .Values.azure.clientId }}
+            - name: AZURE_CLIENT_ID
+              value: {{ .Values.azure.clientId | quote }}
+            {{- end }}
+            {{- if .Values.azure.clientSecret }}
+            - name: AZURE_CLIENT_SECRET
+              value: {{ .Values.azure.clientSecret | quote }}
+            {{- end }}
+            {{- if .Values.azure.federatedTokenFile }}
+            - name: AZURE_FEDERATED_TOKEN_FILE
+              value: {{ .Values.azure.federatedTokenFile | quote }}
+            {{- end }}
+            {{- if .Values.azure.authorityHost }}
+            - name: AZURE_AUTHORITY_HOST
+              value: {{ .Values.azure.authorityHost | quote }}
+            {{- end }}
+            {{- if .Values.azure.tokenCredentials }}
+            - name: AZURE_TOKEN_CREDENTIALS
+              value: {{ .Values.azure.tokenCredentials | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.service.metrics.port }}
+              name: metrics
+              protocol: TCP
+            - containerPort: {{ .Values.service.health.port }}
+              name: health
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+              readOnly: false
+            {{- if .Values.azure.federatedTokenFile }}
+            - mountPath: /var/run/secrets/azure/tokens
+              name: azure-identity-token
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+        {{- if .Values.azure.federatedTokenFile }}
+        - name: azure-identity-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: azure-identity-token
+                  expirationSeconds: 3600
+                  audience: api://AzureADTokenExchange
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10

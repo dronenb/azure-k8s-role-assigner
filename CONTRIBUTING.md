@@ -5,6 +5,7 @@
 - [Go](https://go.dev/dl/) (version in `go.mod`)
 - [Task](https://taskfile.dev/) (v3+)
 - [ko](https://ko.build/) (v0.18.1)
+- [Helm](https://helm.sh/) (v4.2.3)
 - [git-cliff](https://git-cliff.org/) (v2.13.1)
 - [OpenTofu](https://opentofu.org/) (>= 1.6.0)
 - [kind](https://kind.sigs.k8s.io/) (v0.32.0+)
