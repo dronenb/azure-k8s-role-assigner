@@ -2,6 +2,9 @@ name: prek
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -18,6 +21,7 @@ concurrency:
 
 jobs:
   prek:
+    if: github.event_name != 'pull_request' || github.event.pull_request.changed_files > 0
     runs-on: ubuntu-26.04
     steps:
       - name: Checkout
@@ -44,6 +48,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Install prek
+        if: github.event_name != 'push'
         uses: j178/prek-action@8a0e9d7b7d92cbc0139d6b1d1130aa3855ca9172 # v2
         with:
           install-only: true
@@ -66,6 +71,7 @@ jobs:
           key: ${{ steps.cache-podman-images.outputs.cache-primary-key }}
 
       - name: Run prek on changed files
+        if: github.event_name != 'push'
         env:
           BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -84,7 +90,7 @@ jobs:
           prek run --files "${files[@]}"
 
       - name: Upload MegaLinter reports
-        if: always()
+        if: always() && github.event_name != 'push'
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: MegaLinter reports
