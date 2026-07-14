@@ -73,6 +73,10 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < <(git diff --name-only "${BASE_REF}" "${HEAD_REF}" -- . ':!megalinter-reports' || true)
+          if printf '%s\n' "${files[@]}" | grep -Eq '^(\.mega-linter\.yml|\.pre-commit-config\.yaml)$'; then
+            files+=(charts/azure-k8s-role-assigner/Chart.yaml)
+            files+=(internal/controller/reconcile_state.go)
+          fi
           if [ "${#files[@]}" -eq 0 ]; then
             echo "No changed files to lint"
             exit 0

@@ -191,12 +191,14 @@ If your cluster has OIDC issuer configured but the webhook is not installed:
 
 1. Keep the federated credential configuration from step 1
 2. Manually configure the Workload Identity values in the Helm chart:
+
    ```yaml
    azure:
      clientId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
      tenantId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
      federatedTokenFile: /var/run/secrets/azure/tokens/azure-identity-token
    ```
+
 3. Ensure the service account token volume is mounted (already configured)
 4. Remove or ignore the ServiceAccount annotation and pod label (they won't do anything without the webhook)
 
@@ -207,6 +209,7 @@ If you cannot use federated credentials at all:
 1. Remove or ignore the ServiceAccount annotation: `azure.workload.identity/client-id`
 2. Remove or ignore the pod label: `azure.workload.identity/use: "true"`
 3. Set these Helm values:
+
    ```yaml
    azure:
      clientId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -214,6 +217,7 @@ If you cannot use federated credentials at all:
      tenantId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
      federatedTokenFile: ""
    ```
+
 4. Remove the `AZURE_FEDERATED_TOKEN_FILE` environment variable
 5. Remove the azure-identity-token volume and volume mount (not needed for client secret auth)
 
@@ -303,7 +307,7 @@ export AZURE_SERVICE_PRINCIPALS="sp-object-id-1,sp-object-id-2"
 export AZURE_APP_ROLE_ID="cluster-auth-app-role-id"
 ```
 
-2. Run the controller:
+1. Run the controller:
 
 ```bash
 task run
