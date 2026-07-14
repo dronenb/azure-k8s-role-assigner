@@ -20,6 +20,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write # Create or update the release preview PR comment.
+      security-events: write # Upload Clair SARIF results to code scanning.
 
     steps:
       - name: Checkout
@@ -91,6 +92,67 @@ jobs:
           args: release --clean --snapshot --skip=publish,sign
         env:
           KO_DOCKER_REPO: ghcr.io/dronenb/azure-k8s-role-assigner
+
+      - name: Save GoReleaser ko image
+        id: ko-image
+        run: |
+          set -euo pipefail
+
+          images=()
+          while IFS= read -r image; do
+            case "${image}" in
+              goreleaser.ko.local/azure-k8s-role-assigner:*) images+=("${image}") ;;
+            esac
+          done < <(docker image ls --format '{{.Repository}}:{{.Tag}}')
+
+          if [ "${#images[@]}" -eq 0 ]; then
+            echo "::error::No local GoReleaser ko image found"
+            docker image ls
+            exit 1
+          fi
+
+          image_ref=""
+          for image in "${images[@]}"; do
+            case "${image}" in
+              *:latest) ;;
+              *)
+                image_ref="${image}"
+                break
+                ;;
+            esac
+          done
+          if [ -z "${image_ref}" ]; then
+            image_ref="${images[0]}"
+          fi
+
+          image_path=/tmp/azure-k8s-role-assigner-image.tar
+          docker save -o "${image_path}" "${image_ref}"
+          echo "image-path=${image_path}" >> "${GITHUB_OUTPUT}"
+          echo "Saved ${image_ref} to ${image_path}"
+
+      - name: Run Clair scan
+        # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
+        uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
+        with:
+          image-path: ${{ steps.ko-image.outputs.image-path }}
+          format: sarif
+          output: clair-results.sarif
+          return-code: "1"
+
+      - name: Upload Clair SARIF artifact
+        if: always() && hashFiles('clair-results.sarif') != ''
+        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG --jq .object.sha); echo "actions/upload-artifact@$SHA # $TAG"
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: clair-results
+          path: clair-results.sarif
+
+      - name: Upload Clair SARIF to GitHub
+        if: always() && hashFiles('clair-results.sarif') != ''
+        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        with:
+          sarif_file: clair-results.sarif
 
       - name: Post release preview as PR comment
         # Check latest: TAG=$(gh api repos/actions/github-script/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/github-script/git/ref/tags/$TAG --jq .object.sha); echo "actions/github-script@$SHA # $TAG"
