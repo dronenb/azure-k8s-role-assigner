@@ -29,6 +29,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Load MegaLinter image config
         id: megalinter-image
@@ -50,7 +51,7 @@ jobs:
 
       - name: Install prek
         if: github.event_name != 'push'
-        uses: j178/prek-action@8a0e9d7b7d92cbc0139d6b1d1130aa3855ca9172 # v2
+        uses: j178/prek-action@e98a699c41eb69ab013a45817a0406469a748f8d # v2
         with:
           install-only: true
 
@@ -106,8 +107,8 @@ jobs:
 
       - name: Upload MegaLinter SARIF to GitHub
         if: always() && github.event_name != 'push' && hashFiles('megalinter-reports/megalinter-report.sarif') != ''
-        # Check latest v4: SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
-        uses: github/codeql-action/upload-sarif@1ad29ea4a422cce9a242a9fae469541dcd08addc # v4
+        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         with:
           sarif_file: megalinter-reports/megalinter-report.sarif
 
