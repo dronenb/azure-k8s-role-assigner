@@ -147,50 +147,7 @@ See [`tofu/README.md`](tofu/README.md) for details.
 
 ## Release Process
 
-Releases are automated via a PR-based flow using git-cliff for versioning/changelog and GoReleaser for building/publishing.
-
-### Steps to cut a release
-
-1. **Create a release PR**: Open a PR to `main` (can be empty or contain last-minute fixes) and add the **`release-candidate`** label.
-
-2. **Preview**: The `release-preview` workflow runs automatically and posts a PR comment with:
-   - The next semantic version (computed from conventional commits)
-   - Generated release notes
-   - A GoReleaser dry-run to verify the build succeeds
-
-3. **Merge**: Once the preview looks good and CI passes, merge the PR.
-
-4. **Automatic release**: On merge, the `release` workflow:
-   - Computes the next version via `git-cliff --bumped-version`
-   - Creates and pushes a git tag (e.g., `v1.2.0`)
-   - Generates release notes with git-cliff
-   - Builds the Go binary and container image (via ko)
-   - Pushes the image to `ghcr.io/dronenb/azure-k8s-role-assigner`
-   - Signs the checksum file and container manifest with cosign (keyless OIDC)
-   - Creates a GitHub Release with the signed artifacts and release notes
-
-### What gets published
-
-| Artifact                    | Location                                            |
-| --------------------------- | --------------------------------------------------- |
-| Go binary (`manager`)       | GitHub Release assets                               |
-| Container image             | `ghcr.io/dronenb/azure-k8s-role-assigner:<version>` |
-| Cosign signature (checksum) | `*.sigstore.json` in release assets                 |
-| Cosign signature (image)    | Attached to OCI manifest in GHCR                    |
-
-### Verifying signatures
-
-```bash
-# Verify the container image
-cosign verify ghcr.io/dronenb/azure-k8s-role-assigner:<version> \
-  --certificate-identity-regexp="https://github.com/dronenb/azure-k8s-role-assigner" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
-
-# Verify a release asset
-cosign verify-blob \
-  --bundle manager-linux-amd64.sigstore.json \
-  manager-linux-amd64
-```
+See [`RELEASING.md`](RELEASING.md) for the PR-based release process, including the one-command `task release:pr` flow.
 
 ## Security
 
