@@ -13,6 +13,7 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
+  security-events: write
   statuses: write
 
 concurrency:
@@ -102,3 +103,25 @@ jobs:
           path: |
             megalinter-reports
             mega-linter.log
+
+      - name: Upload MegaLinter SARIF to GitHub
+        if: always() && github.event_name != 'push' && hashFiles('megalinter-reports/megalinter-report.sarif') != ''
+        # Check latest v4: SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
+        uses: github/codeql-action/upload-sarif@1ad29ea4a422cce9a242a9fae469541dcd08addc # v4
+        with:
+          sarif_file: megalinter-reports/megalinter-report.sarif
+
+      - name: Remove duplicate code scanning setup comments
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-advanced-security" and (.body | startswith("You are seeing this message because GitHub Code Scanning has recently been set up"))) | .id' \
+            | while IFS= read -r comment_id; do
+              gh api --method DELETE "repos/${REPOSITORY}/issues/comments/${comment_id}"
+            done
