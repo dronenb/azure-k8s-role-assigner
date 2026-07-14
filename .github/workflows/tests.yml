@@ -20,7 +20,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # E2E provisions real Entra infrastructure. Do not cancel a running workflow
+  # on new commits, or Terraform cleanup steps may not get a chance to run.
+  cancel-in-progress: false
 
 jobs:
   unit:
