@@ -38,7 +38,6 @@ DOCKERFILE_HADOLINT_FILE_NAMES_REGEX:
   - (.*\.)?Dockerfile
 
 KUBERNETES_HELM_ARGUMENTS: charts/azure-k8s-role-assigner
-KUBERNETES_HELM_COMMAND_REMOVE_ARGUMENTS:
-  - .
+KUBERNETES_DIRECTORY: charts/azure-k8s-role-assigner
 
 GO_GOLANGCI_LINT_ARGUMENTS: --timeout=10m
