@@ -706,12 +706,12 @@ tasks:
   changelog:
     desc: Generate changelog using git-cliff.
     cmds:
-      - git-cliff --output CHANGELOG.md
+      - git-cliff --config .cliff.yml --output CHANGELOG.md
 
   next-version:
     desc: Print the next semantic version based on conventional commits.
     cmds:
-      - git-cliff --bumped-version
+      - git-cliff --config .cliff.yml --bumped-version
 
   release:pr:
     desc: Create an empty release-candidate PR for the next git-cliff version.
@@ -735,7 +735,7 @@ tasks:
         fi
 
         BASE_BRANCH="{{.BASE_BRANCH}}"
-        NEXT_VERSION="$(git-cliff --bumped-version)"
+        NEXT_VERSION="$(git-cliff --config .cliff.yml --bumped-version)"
         RELEASE_BRANCH="{{.RELEASE_BRANCH}}"
         if [ -z "$RELEASE_BRANCH" ]; then
           RELEASE_BRANCH="release/${NEXT_VERSION}"

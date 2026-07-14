@@ -14,7 +14,7 @@ The task will:
 
 - verify required tools are installed: `git`, `gh`, and `git-cliff`
 - require a clean working tree
-- compute the next version with `git-cliff --bumped-version`
+- compute the next version with `git-cliff --config .cliff.yml --bumped-version`
 - update local `main` from `origin/main`
 - create an empty commit on `release/<version>`
 - push the branch
@@ -35,7 +35,7 @@ Use this if you need to control each step manually:
 git switch main
 git pull --ff-only origin main
 
-NEXT_VERSION="$(git-cliff --bumped-version)"
+NEXT_VERSION="$(git-cliff --config .cliff.yml --bumped-version)"
 RELEASE_BRANCH="release/${NEXT_VERSION}"
 
 git switch -c "$RELEASE_BRANCH"
@@ -57,8 +57,8 @@ The `Release Preview` workflow runs on PR open, synchronize, or label events whe
 
 It does three things:
 
-- computes the next semantic version with `git-cliff --bumped-version`
-- generates changelog entries with `git-cliff --latest --strip header --unreleased --tag <version>`
+- computes the next semantic version with `git-cliff --config .cliff.yml --bumped-version`
+- generates changelog entries with `git-cliff --config .cliff.yml --latest --strip header --unreleased --tag <version>`
 - appends image, Helm chart, and cosign verification instructions to the release notes
 - packages the Helm chart with the computed version and app version
 - runs `goreleaser release --clean --snapshot --skip=publish`
@@ -71,7 +71,7 @@ Merging a PR labeled `release-candidate` triggers the `Release` workflow.
 
 The release workflow:
 
-- computes the next version with `git-cliff --bumped-version`
+- computes the next version with `git-cliff --config .cliff.yml --bumped-version`
 - creates and pushes an annotated tag such as `v1.2.0`
 - generates release notes with `git-cliff` and appends image, Helm chart, and cosign verification instructions
 - logs in to GHCR once using a shared Docker-compatible registry auth file
