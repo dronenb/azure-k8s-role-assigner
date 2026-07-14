@@ -64,7 +64,8 @@ jobs:
         run: |
           git-cliff --config .cliff.yml --latest --strip header --unreleased --tag "$VERSION" > /tmp/release-notes.md
           .github/scripts/append-release-notes-footer "$VERSION" /tmp/release-notes.md
-          echo "## Release Preview: $VERSION" > /tmp/comment.md
+          echo "<!-- release-preview-comment -->" > /tmp/comment.md
+          echo "## Release Preview: $VERSION" >> /tmp/comment.md
           echo "" >> /tmp/comment.md
           cat /tmp/release-notes.md >> /tmp/comment.md
         env:
@@ -98,12 +99,15 @@ jobs:
           script: |
             const fs = require('fs');
             const body = fs.readFileSync('/tmp/comment.md', 'utf8');
+            const marker = '<!-- release-preview-comment -->';
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
             const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes(marker)
+            ) || comments.find(c =>
               c.user.type === 'Bot' && c.body.includes('Release Preview:')
             );
             if (botComment) {
