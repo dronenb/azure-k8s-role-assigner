@@ -48,3 +48,7 @@ terraform.tfvars
 .task/
 
 *.pyc
+
+# MegaLinter reports
+megalinter-reports/
+mega-linter.log

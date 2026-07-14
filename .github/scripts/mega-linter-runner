@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${repo_root}"
+source "${repo_root}/.github/megalinter-image.env"
+
+env_args=()
+while IFS= read -r line || [ -n "${line}" ]; do
+  case "${line}" in
+    ""|\#*) continue ;;
+  esac
+  env_args+=(--env "${line}")
+done < "${repo_root}/.github/megalinter.env"
+
+exec npx -- "mega-linter-runner@${MEGALINTER_RUNNER_VERSION}" "${env_args[@]}" --release "${MEGALINTER_VERSION}" --image "${MEGALINTER_IMAGE}" "$@"
