@@ -25,7 +25,7 @@ The stack provisions nearly all prerequisites used in that guide:
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-2. Set auth environment variables for the Terraform/OpenTofu provisioner identity:
+1. Set auth environment variables for the Terraform/OpenTofu provisioner identity:
 
 ```bash
 export ARM_TENANT_ID="<tenant-id>"
@@ -34,7 +34,7 @@ export ARM_CLIENT_SECRET="<terraform-provisioner-sp-client-secret>"
 export ARM_SUBSCRIPTION_ID="<subscription-id>"
 ```
 
-3. Execute OpenTofu:
+1. Execute OpenTofu:
 
 ```bash
 tofu init
@@ -42,7 +42,7 @@ tofu plan
 tofu apply
 ```
 
-4. Use outputs in `TESTING.md` flow:
+1. Use outputs in `TESTING.md` flow:
 
 - `controller_app_id`
 - `controller_sp_object_id`

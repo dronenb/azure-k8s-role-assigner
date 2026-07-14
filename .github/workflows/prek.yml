@@ -1,0 +1,94 @@
+name: prek
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prek:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Load MegaLinter image config
+        id: megalinter-image
+        run: |
+          set -euo pipefail
+          source .github/megalinter-image.env
+          {
+            echo "MEGALINTER_IMAGE=${MEGALINTER_IMAGE}"
+            echo "MEGALINTER_IMAGE_CACHE_DIGEST=${MEGALINTER_IMAGE_CACHE_DIGEST}"
+            echo "MEGALINTER_IMAGE_DIGEST=${MEGALINTER_IMAGE_DIGEST}"
+            echo "MEGALINTER_RUNNER_VERSION=${MEGALINTER_RUNNER_VERSION}"
+            echo "MEGALINTER_VERSION=${MEGALINTER_VERSION}"
+          } >> "${GITHUB_ENV}"
+          {
+            echo "cache-digest=${MEGALINTER_IMAGE_CACHE_DIGEST}"
+            echo "image=${MEGALINTER_IMAGE}"
+            echo "version=${MEGALINTER_VERSION}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Install prek
+        uses: j178/prek-action@8a0e9d7b7d92cbc0139d6b1d1130aa3855ca9172 # v2
+        with:
+          install-only: true
+
+      - name: Restore Podman image cache
+        id: cache-podman-images
+        uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: ~/.local/share/containers
+          key: podman-megalinter-${{ steps.megalinter-image.outputs.version }}-${{ steps.megalinter-image.outputs.cache-digest }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Pull MegaLinter image
+        run: podman pull "${MEGALINTER_IMAGE}"
+
+      - name: Save Podman image cache
+        if: steps.cache-podman-images.outputs.cache-hit != 'true'
+        uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: ~/.local/share/containers
+          key: ${{ steps.cache-podman-images.outputs.cache-primary-key }}
+
+      - name: Run prek on changed files
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --name-only "${BASE_REF}" "${HEAD_REF}" -- . ':!megalinter-reports' || true)
+          if printf '%s\n' "${files[@]}" | grep -Eq '^(\.mega-linter\.yml|\.pre-commit-config\.yaml)$'; then
+            files+=(charts/azure-k8s-role-assigner/Chart.yaml)
+            files+=(internal/controller/reconcile_state.go)
+          fi
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed files to lint"
+            exit 0
+          fi
+          prek run --files "${files[@]}"
+
+      - name: Upload MegaLinter reports
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: MegaLinter reports
+          include-hidden-files: "true"
+          path: |
+            megalinter-reports
+            mega-linter.log

@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: megalinter-full
+        name: Run MegaLinter
+        entry: bash .github/scripts/mega-linter-runner
+        language: system
+        require_serial: true
+        args:
+          - --containername
+          - megalinter-full
+          - --container-engine
+          - podman
+          - --remove-container

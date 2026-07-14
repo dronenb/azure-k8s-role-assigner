@@ -1,3 +1,4 @@
+// Package controller contains Kubernetes RBAC reconcilers and shared reconcile state logic.
 package controller
 
 import (
