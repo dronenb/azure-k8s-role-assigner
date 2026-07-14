@@ -36,6 +36,13 @@ variable "oidc_issuer_url" {
   type        = string
 }
 
+# tflint-ignore: terraform_unused_declarations
+variable "static_oidc_issuer_url" {
+  description = "Static OIDC issuer URL from static infra; accepted for e2e task compatibility"
+  type        = string
+  default     = ""
+}
+
 variable "service_account_namespace" {
   description = "Namespace of controller service account for federated identity credential"
   type        = string
