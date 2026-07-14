@@ -753,5 +753,10 @@ tasks:
           --head "$RELEASE_BRANCH" \
           --title "chore: release ${NEXT_VERSION}" \
           --body "Release candidate for ${NEXT_VERSION}. Merge this PR after the release preview and CI pass.")"
+        if ! gh label list --json name --jq '.[].name' | grep -qx release-candidate; then
+          gh label create release-candidate \
+            --description "Marks PRs that should trigger release preview and publish workflows" \
+            --color 5319e7
+        fi
         gh pr edit "$PR_URL" --add-label release-candidate
         echo "$PR_URL"
