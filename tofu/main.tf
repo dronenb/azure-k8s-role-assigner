@@ -32,6 +32,11 @@ terraform {
       source  = "hashicorp/http"
       version = "~> 3.5"
     }
+    # Check latest: curl -s https://registry.terraform.io/v1/providers/hashicorp/random | jq -r .version
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.7"
+    }
   }
 
   backend "azurerm" {
@@ -138,6 +143,10 @@ resource "azurerm_key_vault" "ci" {
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
   rbac_authorization_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Current user gets Key Vault Administrator (to manage secrets during apply)
@@ -159,6 +168,10 @@ resource "azurerm_key_vault_secret" "sa_signing_key" {
   key_vault_id = azurerm_key_vault.ci.id
 
   depends_on = [time_sleep.wait_for_kv_rbac]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_key_vault_secret" "e2e_test_user_password" {
@@ -167,6 +180,10 @@ resource "azurerm_key_vault_secret" "e2e_test_user_password" {
   key_vault_id = azurerm_key_vault.ci.id
 
   depends_on = [time_sleep.wait_for_kv_rbac]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # --- OIDC Storage Account (Kubernetes SA issuer) ---
@@ -178,6 +195,10 @@ resource "azurerm_storage_account" "oidc" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
   min_tls_version          = "TLS1_2"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_storage_account_static_website" "oidc" {
@@ -214,6 +235,10 @@ resource "azurerm_storage_blob" "oidc_discovery" {
   source_content       = local.oidc_discovery
 
   depends_on = [azurerm_storage_account_static_website.oidc]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Generate JWKS from the RSA public key via external data source
@@ -233,6 +258,10 @@ resource "azurerm_storage_blob" "oidc_jwks" {
   source_content       = data.external.jwks.result.jwks
 
   depends_on = [azurerm_storage_account_static_website.oidc]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # --- OpenTofu State Backend ---
@@ -244,11 +273,19 @@ resource "azurerm_storage_account" "tfstate" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
   min_tls_version          = "TLS1_2"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_storage_container" "tfstate" {
   name               = "tfstate"
   storage_account_id = azurerm_storage_account.tfstate.id
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # --- GitHub Actions Service Principal (WIF) ---

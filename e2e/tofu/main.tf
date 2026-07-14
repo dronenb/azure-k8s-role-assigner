@@ -36,8 +36,9 @@ variable "oidc_issuer_url" {
   type        = string
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "static_oidc_issuer_url" {
-  description = "Static OIDC issuer URL from static infra; when equal to `oidc_issuer_url`, dynamic test-client credential will be skipped"
+  description = "Static OIDC issuer URL from static infra; accepted for e2e task compatibility"
   type        = string
   default     = ""
 }

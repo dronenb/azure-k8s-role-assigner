@@ -11,9 +11,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
-  statuses: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -21,13 +18,21 @@ concurrency:
 
 jobs:
   prek:
+    name: prek
     if: github.event_name != 'pull_request' || github.event.pull_request.changed_files > 0
     runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      issues: write # MegaLinter PR comments and setup-comment cleanup.
+      pull-requests: write # MegaLinter pull request reporter.
+      security-events: write # MegaLinter SARIF upload to code scanning.
+      statuses: write # MegaLinter GitHub status reporter.
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Load MegaLinter image config
         id: megalinter-image
@@ -49,7 +54,7 @@ jobs:
 
       - name: Install prek
         if: github.event_name != 'push'
-        uses: j178/prek-action@8a0e9d7b7d92cbc0139d6b1d1130aa3855ca9172 # v2
+        uses: j178/prek-action@e98a699c41eb69ab013a45817a0406469a748f8d # v2
         with:
           install-only: true
 
@@ -79,8 +84,12 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < <(git diff --name-only "${BASE_REF}" "${HEAD_REF}" -- . ':!megalinter-reports' || true)
-          if printf '%s\n' "${files[@]}" | grep -Eq '^(\.mega-linter\.yml|\.pre-commit-config\.yaml)$'; then
+          if printf '%s\n' "${files[@]}" | grep -Eq '^(\.mega-linter\.yml|\.pre-commit-config\.yaml|\.shellcheckrc)$'; then
+            files+=(.github/workflows/prek.yml)
+            files+=(.github/scripts/mega-linter-runner)
             files+=(charts/azure-k8s-role-assigner/Chart.yaml)
+            files+=(tofu/main.tf)
+            files+=(tofu/bootstrap.ps1)
             files+=(internal/controller/reconcile_state.go)
           fi
           if [ "${#files[@]}" -eq 0 ]; then
@@ -98,3 +107,25 @@ jobs:
           path: |
             megalinter-reports
             mega-linter.log
+
+      - name: Upload MegaLinter SARIF to GitHub
+        if: always() && github.event_name != 'push' && hashFiles('megalinter-reports/megalinter-report.sarif') != ''
+        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        with:
+          sarif_file: megalinter-reports/megalinter-report.sarif
+
+      - name: Remove duplicate code scanning setup comments
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-advanced-security" and (.body | startswith("You are seeing this message because GitHub Code Scanning has recently been set up"))) | .id' \
+            | while IFS= read -r comment_id; do
+              gh api --method DELETE "repos/${REPOSITORY}/issues/comments/${comment_id}"
+            done
