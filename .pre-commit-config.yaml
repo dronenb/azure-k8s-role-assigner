@@ -1,13 +1,14 @@
 repos:
-  - repo: https://github.com/oxsecurity/megalinter
-    rev: ef3e84b8b836d76db562d0f3ed7da61e8fd538bc # frozen: v9.6.0
+  - repo: local
     hooks:
       - id: megalinter-full
+        name: Run MegaLinter
         entry: bash .github/scripts/mega-linter-runner
+        language: system
+        require_serial: true
         args:
           - --containername
           - megalinter-full
           - --container-engine
           - podman
           - --remove-container
-          - --fix
