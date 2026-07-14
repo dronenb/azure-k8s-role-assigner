@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < <(git diff --name-only "${BASE_REF}" "${HEAD_REF}" -- . ':!megalinter-reports' || true)
-          if printf '%s\n' "${files[@]}" | grep -Eq '^(\.mega-linter\.yml|\.pre-commit-config\.yaml)$'; then
+          if printf '%s\n' "${files[@]}" | grep -Eq '^(\.mega-linter\.yml|\.pre-commit-config\.yaml|\.shellcheckrc)$'; then
             files+=(.github/workflows/prek.yml)
             files+=(.github/scripts/mega-linter-runner)
             files+=(charts/azure-k8s-role-assigner/Chart.yaml)
