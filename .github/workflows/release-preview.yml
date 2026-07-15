@@ -83,6 +83,38 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
 
+      - name: Set up Podman Docker compatibility
+        run: |
+          set -euo pipefail
+
+          sudo systemctl stop docker.service docker.socket containerd.service || true
+          if sudo systemctl is-active --quiet docker.service || sudo systemctl is-active --quiet docker.socket; then
+            echo "::error::Docker daemon is still running"
+            exit 1
+          fi
+
+          runtime_dir="${XDG_RUNTIME_DIR:-${RUNNER_TEMP}/podman-runtime}"
+          socket_path="${runtime_dir}/podman/podman.sock"
+          mkdir -p "${runtime_dir}/podman"
+          chmod 700 "${runtime_dir}"
+          export XDG_RUNTIME_DIR="${runtime_dir}"
+          if [ ! -S "${socket_path}" ]; then
+            podman system service --time=0 "unix://${socket_path}" &
+          fi
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [ -S "${socket_path}" ]; then
+              break
+            fi
+            sleep 1
+          done
+          if [ ! -S "${socket_path}" ]; then
+            echo "::error::Podman Docker-compatible socket did not start"
+            exit 1
+          fi
+
+          echo "XDG_RUNTIME_DIR=${runtime_dir}" >> "${GITHUB_ENV}"
+          echo "DOCKER_HOST=unix://${socket_path}" >> "${GITHUB_ENV}"
+
       - name: GoReleaser dry run
         # Check latest: TAG=$(gh api repos/goreleaser/goreleaser-action/releases/latest --jq .tag_name); SHA=$(gh api repos/goreleaser/goreleaser-action/git/ref/tags/$TAG --jq .object.sha); echo "goreleaser/goreleaser-action@$SHA # $TAG"
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
@@ -103,11 +135,11 @@ jobs:
             case "${image}" in
               goreleaser.ko.local/azure-k8s-role-assigner:*) images+=("${image}") ;;
             esac
-          done < <(docker image ls --format '{{.Repository}}:{{.Tag}}')
+          done < <(podman image ls --format '{{.Repository}}:{{.Tag}}')
 
           if [ "${#images[@]}" -eq 0 ]; then
             echo "::error::No local GoReleaser ko image found"
-            docker image ls
+            podman image ls
             exit 1
           fi
 
@@ -126,7 +158,7 @@ jobs:
           fi
 
           image_path=/tmp/azure-k8s-role-assigner-image.tar
-          docker save -o "${image_path}" "${image_ref}"
+          podman image save --format oci-archive -o "${image_path}" "${image_ref}"
           echo "image-path=${image_path}" >> "${GITHUB_OUTPUT}"
           echo "Saved ${image_ref} to ${image_path}"
 
@@ -141,8 +173,8 @@ jobs:
 
       - name: Upload Clair SARIF artifact
         if: always() && hashFiles('clair-results.sarif') != ''
-        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG --jq .object.sha); echo "actions/upload-artifact@$SHA # $TAG"
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: clair-results
           path: clair-results.sarif
