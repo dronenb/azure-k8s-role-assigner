@@ -84,7 +84,7 @@ tasks:
   # --- Image ---
 
   build-image:
-    desc: Build container image as OCI tarball using ko (no daemon required).
+    desc: Build container image as a tarred OCI layout using ko (no daemon required).
     sources:
       - ./**/*.go
       - go.mod
@@ -92,8 +92,34 @@ tasks:
       - .ko.yaml
     generates:
       - '{{.IMG_TARBALL | default "image.tar"}}'
+    preconditions:
+      - sh: command -v jq >/dev/null
+        msg: jq is required to annotate the OCI layout image reference
     cmds:
-      - ko build --bare --tags={{.TAG | default "latest"}} --push=false --tarball={{.IMG_TARBALL | default "image.tar"}} --platform={{.PLATFORM | default (printf "linux/%s" ARCH)}} ./cmd
+      - |
+        set -euo pipefail
+        image_tarball='{{.IMG_TARBALL | default "image.tar"}}'
+        image_ref='{{.IMG}}:{{.TAG | default "latest"}}'
+        oci_layout=.ko-oci-layout
+        rm -rf "${oci_layout}"
+        mkdir -p "${oci_layout}"
+        trap 'rm -rf "${oci_layout}"' EXIT
+
+        ko build \
+          --bare \
+          --tags='{{.TAG | default "latest"}}' \
+          --push=false \
+          --oci-layout-path="${oci_layout}" \
+          --platform='{{.PLATFORM | default (printf "linux/%s" ARCH)}}' \
+          ./cmd
+
+        index_tmp="${oci_layout}/index.json.tmp"
+        jq --arg image_ref "${image_ref}" \
+          '.manifests[0].annotations = ((.manifests[0].annotations // {}) + {"org.opencontainers.image.ref.name": $image_ref})' \
+          "${oci_layout}/index.json" > "${index_tmp}"
+        mv "${index_tmp}" "${oci_layout}/index.json"
+
+        tar -C "${oci_layout}" -cf "${image_tarball}" .
     env:
       KO_DOCKER_REPO: "{{.IMG}}"
 
