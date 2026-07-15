@@ -184,11 +184,19 @@ jobs:
           echo "image-path=${image_path}" >> "${GITHUB_OUTPUT}"
           echo "Saved ${image_ref} to ${image_path}"
 
+      - name: Update Clair vulnerability DB
+        # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
+        uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
+        with:
+          mode: update
+          db-file: matcher.db
+
       - name: Run Clair scan
         # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
         uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
         with:
           image-path: ${{ steps.ko-image.outputs.image-path }}
+          db-file: matcher.db
           format: sarif
           output: clair-results.sarif
           return-code: "1"
