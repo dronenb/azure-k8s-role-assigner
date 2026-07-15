@@ -88,6 +88,19 @@ jobs:
         run: |
           set -euo pipefail
 
+          docker_images=()
+          while IFS= read -r image; do
+            case "${image}" in
+              "<none>:<none>") ;;
+              *) docker_images+=("${image}") ;;
+            esac
+          done < <(docker image ls --format '{{.Repository}}:{{.Tag}}')
+          docker_images_path=""
+          if [[ "${#docker_images[@]}" -gt 0 ]]; then
+            docker_images_path="${RUNNER_TEMP}/docker-images.tar"
+            docker image save -o "${docker_images_path}" "${docker_images[@]}"
+          fi
+
           sudo systemctl stop docker.service docker.socket containerd.service || true
           if sudo systemctl is-active --quiet docker.service || sudo systemctl is-active --quiet docker.socket; then
             echo "::error::Docker daemon is still running"
@@ -111,6 +124,10 @@ jobs:
           if [ ! -S "${socket_path}" ]; then
             echo "::error::Podman Docker-compatible socket did not start"
             exit 1
+          fi
+
+          if [[ -n "${docker_images_path}" ]]; then
+            podman image load -i "${docker_images_path}"
           fi
 
           echo "XDG_RUNTIME_DIR=${runtime_dir}" >> "${GITHUB_ENV}"
@@ -162,7 +179,7 @@ jobs:
             image_ref="${images[0]}"
           fi
 
-          image_path=/tmp/azure-k8s-role-assigner-image.tar
+          image_path=azure-k8s-role-assigner-image.tar
           podman image save --format oci-archive -o "${image_path}" "${image_ref}"
           echo "image-path=${image_path}" >> "${GITHUB_OUTPUT}"
           echo "Saved ${image_ref} to ${image_path}"
