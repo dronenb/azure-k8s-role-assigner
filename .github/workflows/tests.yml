@@ -72,6 +72,9 @@ jobs:
     name: govulncheck
     runs-on: ubuntu-26.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write # Upload govulncheck SARIF results to code scanning.
 
     steps:
       - name: Checkout
@@ -87,7 +90,27 @@ jobs:
           go-version-input: ""
           go-version-file: go.mod
           go-package: ./...
+          output-format: sarif
+          output-file: govulncheck.sarif
           repo-checkout: false
+
+      - name: Upload govulncheck SARIF artifact
+        if: always() && hashFiles('govulncheck.sarif') != ''
+        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG --jq .object.sha); echo "actions/upload-artifact@$SHA # $TAG"
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: govulncheck-sarif
+          path: govulncheck.sarif
+
+      - name: Upload govulncheck SARIF to GitHub
+        if: always() && hashFiles('govulncheck.sarif') != ''
+        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        with:
+          sarif_file: govulncheck.sarif
+
+      - name: Fail on govulncheck findings
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   e2e:
     name: End-to-End (kind + Entra)
