@@ -56,6 +56,7 @@ jobs:
         if: github.event_name != 'push'
         uses: j178/prek-action@e98a699c41eb69ab013a45817a0406469a748f8d # v2
         with:
+          cache: false
           install-only: true
 
       - name: Restore Podman image cache
@@ -69,7 +70,7 @@ jobs:
         run: podman pull "${MEGALINTER_IMAGE}"
 
       - name: Save Podman image cache
-        if: steps.cache-podman-images.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref_name == 'main' && steps.cache-podman-images.outputs.cache-hit != 'true'
         uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
         with:
           path: ~/.local/share/containers
