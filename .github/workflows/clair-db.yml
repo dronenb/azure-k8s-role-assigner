@@ -1,0 +1,35 @@
+name: Clair DB
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * *"
+
+permissions: {}
+
+concurrency:
+  group: clair-db
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update Clair Vulnerability DB
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Update Clair vulnerability DB
+        # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
+        uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
+        with:
+          mode: update
+          db-file: matcher.db
+
+      - name: Save Clair vulnerability DB
+        # Check latest: TAG=$(gh api repos/actions/cache/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/cache/git/ref/tags/$TAG --jq .object.sha); echo "actions/cache/save@$SHA # $TAG"
+        uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: matcher.db
+          key: clair-db-v1-${{ github.run_id }}

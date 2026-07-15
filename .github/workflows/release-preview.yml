@@ -84,6 +84,15 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
 
+      - name: Restore Clair vulnerability DB
+        # Check latest: TAG=$(gh api repos/actions/cache/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/cache/git/ref/tags/$TAG --jq .object.sha); echo "actions/cache/restore@$SHA # $TAG"
+        uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: matcher.db
+          key: clair-db-v1-${{ github.run_id }}
+          restore-keys: |
+            clair-db-v1-
+
       - name: Set up Podman Docker compatibility
         run: |
           set -euo pipefail
@@ -185,6 +194,7 @@ jobs:
           echo "Saved ${image_ref} to ${image_path}"
 
       - name: Update Clair vulnerability DB
+        if: hashFiles('matcher.db') == ''
         # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
         uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
         with:
