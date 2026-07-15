@@ -173,9 +173,10 @@ jobs:
       - name: Update release notes with published digests
         run: |
           IMAGE_DIGEST=""
+          IMAGE_VERSION="${VERSION#v}"
           while IFS= read -r line; do
             case "$line" in
-              *"ghcr.io/dronenb/azure-k8s-role-assigner:${VERSION}"*)
+              *"ghcr.io/dronenb/azure-k8s-role-assigner:${IMAGE_VERSION}"*)
                 for field in $line; do
                   case "$field" in
                     *@sha256:*) IMAGE_DIGEST="${field##*@}" ;;

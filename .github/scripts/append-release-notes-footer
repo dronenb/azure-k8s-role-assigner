@@ -1,27 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then
-  echo "usage: $0 <version> <release-notes-file> [image-digest] [chart-digest]" >&2
-  exit 1
+if [[ "$#" -lt 2 ]] || [[ "$#" -gt 4 ]]; then
+	echo "usage: $0 <version> <release-notes-file> [image-digest] [chart-digest]" >&2
+	exit 1
 fi
 
 version="$1"
 release_notes_file="$2"
 chart_version="${version#v}"
+image_version="${version#v}"
 image_digest="${3:-}"
 chart_digest="${4:-}"
 
-image_ref="ghcr.io/dronenb/azure-k8s-role-assigner:${version}"
+image_ref="ghcr.io/dronenb/azure-k8s-role-assigner:${image_version}"
 chart_ref="ghcr.io/dronenb/charts/azure-k8s-role-assigner:${chart_version}"
-if [ -n "$image_digest" ]; then
-  image_ref="ghcr.io/dronenb/azure-k8s-role-assigner@${image_digest}"
+if [[ -n "${image_digest}" ]]; then
+	image_ref="ghcr.io/dronenb/azure-k8s-role-assigner@${image_digest}"
 fi
-if [ -n "$chart_digest" ]; then
-  chart_ref="ghcr.io/dronenb/charts/azure-k8s-role-assigner@${chart_digest}"
+if [[ -n "${chart_digest}" ]]; then
+	chart_ref="ghcr.io/dronenb/charts/azure-k8s-role-assigner@${chart_digest}"
 fi
 
-cat >> "$release_notes_file" <<EOF
+cat >>"${release_notes_file}" <<EOF
 
 ## Images
 
@@ -52,14 +53,14 @@ ${chart_ref}
 
 EOF
 
-if [ -n "$chart_digest" ]; then
-  cat >> "$release_notes_file" <<EOF
+if [[ -n "${chart_digest}" ]]; then
+	cat >>"${release_notes_file}" <<EOF
 
 The chart OCI digest is \`${chart_digest}\`.
 EOF
 fi
 
-cat >> "$release_notes_file" <<EOF
+cat >>"${release_notes_file}" <<EOF
 
 Install the chart from GHCR:
 
@@ -72,8 +73,8 @@ helm upgrade --install azure-k8s-role-assigner \\
 \`\`\`
 EOF
 
-if [ -z "$image_digest" ] || [ -z "$chart_digest" ]; then
-  cat >> "$release_notes_file" <<EOF
+if [[ -z "${image_digest}" ]] || [[ -z "${chart_digest}" ]]; then
+	cat >>"${release_notes_file}" <<EOF
 
 Digest-pinned image and chart references are added to the final GitHub Release notes after publishing completes.
 EOF
