@@ -60,8 +60,8 @@ jobs:
           fi
 
       - name: Upload coverage report
-        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG --jq .object.sha); echo "actions/upload-artifact@$SHA # $TAG"
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: coverage
@@ -96,8 +96,8 @@ jobs:
 
       - name: Upload govulncheck SARIF artifact
         if: always() && hashFiles('govulncheck.sarif') != ''
-        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG --jq .object.sha); echo "actions/upload-artifact@$SHA # $TAG"
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: govulncheck-sarif
           path: govulncheck.sarif
