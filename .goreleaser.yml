@@ -3,6 +3,9 @@ version: 2
 
 project_name: azure-k8s-role-assigner
 
+snapshot:
+  version_template: '{{ if .Env.GORELEASER_SNAPSHOT_VERSION }}{{ .Env.GORELEASER_SNAPSHOT_VERSION }}-SNAPSHOT-{{ .ShortCommit }}{{ else }}{{ .Version }}-SNAPSHOT-{{ .ShortCommit }}{{ end }}'
+
 builds:
   - id: manager
     main: ./cmd/main.go

@@ -58,6 +58,7 @@ jobs:
         run: |
           NEXT_VERSION="$(git-cliff --config .cliff.yml --bumped-version)"
           echo "version=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image-version=${NEXT_VERSION#v}" >> "$GITHUB_OUTPUT"
           echo "Next version: ${NEXT_VERSION}"
 
       - name: Generate release notes preview
@@ -123,6 +124,7 @@ jobs:
           version: v2.17.0
           args: release --clean --snapshot --skip=publish,sign
         env:
+          GORELEASER_SNAPSHOT_VERSION: ${{ steps.version.outputs.image-version }}
           KO_DOCKER_REPO: ghcr.io/dronenb/azure-k8s-role-assigner
 
       - name: Save GoReleaser ko image
@@ -133,7 +135,8 @@ jobs:
           images=()
           while IFS= read -r image; do
             case "${image}" in
-              goreleaser.ko.local/azure-k8s-role-assigner:*) images+=("${image}") ;;
+              */goreleaser.ko.local:*) images+=("${image}") ;;
+              goreleaser.ko.local:*) images+=("${image}") ;;
             esac
           done < <(podman image ls --format '{{.Repository}}:{{.Tag}}')
 
@@ -147,6 +150,8 @@ jobs:
           for image in "${images[@]}"; do
             case "${image}" in
               *:latest) ;;
+              *:sha256-*) ;;
+              *:sha256:*) ;;
               *)
                 image_ref="${image}"
                 break

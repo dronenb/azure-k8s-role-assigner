@@ -9,10 +9,11 @@ fi
 version="$1"
 release_notes_file="$2"
 chart_version="${version#v}"
+image_version="${version#v}"
 image_digest="${3:-}"
 chart_digest="${4:-}"
 
-image_ref="ghcr.io/dronenb/azure-k8s-role-assigner:${version}"
+image_ref="ghcr.io/dronenb/azure-k8s-role-assigner:${image_version}"
 chart_ref="ghcr.io/dronenb/charts/azure-k8s-role-assigner:${chart_version}"
 if [ -n "$image_digest" ]; then
   image_ref="ghcr.io/dronenb/azure-k8s-role-assigner@${image_digest}"
