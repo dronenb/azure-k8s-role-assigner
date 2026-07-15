@@ -84,6 +84,7 @@ jobs:
         # Check latest: TAG=$(gh api repos/golang/govulncheck-action/releases/latest --jq .tag_name); SHA=$(gh api repos/golang/govulncheck-action/git/ref/tags/$TAG --jq .object.sha); echo "golang/govulncheck-action@$SHA # $TAG"
         uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
         with:
+          go-version-input: ""
           go-version-file: go.mod
           go-package: ./...
           repo-checkout: false
