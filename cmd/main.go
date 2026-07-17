@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -96,6 +99,34 @@ func main() {
 		os.Exit(1)
 	}
 
+	if strings.EqualFold(os.Getenv("ARGOCD_ENABLED"), "true") {
+		argocdAzureClient, err := newArgoCDAzureClient(ctx)
+		if err != nil {
+			setupLog.Error(err, "unable to create Argo CD Azure client")
+			os.Exit(1)
+		}
+
+		argocdReconciler := &controller.ArgoCDReconciler{
+			ConfigMapNamespace: envOrDefault("ARGOCD_RBAC_CONFIGMAP_NAMESPACE", "argocd"),
+			ConfigMapName:      envOrDefault("ARGOCD_RBAC_CONFIGMAP_NAME", "argocd-rbac-cm"),
+			AppProjectsEnabled: !strings.EqualFold(os.Getenv("ARGOCD_APPPROJECTS_ENABLED"), "false"),
+			ResyncPeriod:       resyncPeriod,
+		}
+		argocdStateReconciler := &controller.StateReconciler{
+			Client:               mgr.GetClient(),
+			Scheme:               mgr.GetScheme(),
+			AzureClient:          argocdAzureClient,
+			BuildDesiredGroupIDs: argocdReconciler.BuildArgoCDDesiredGroupIDs,
+		}
+		argocdReconciler.StateReconciler = argocdStateReconciler
+
+		if err = argocdReconciler.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ArgoCD")
+			os.Exit(1)
+		}
+		setupLog.Info("Argo CD reconciliation enabled")
+	}
+
 	// Add health checks
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -111,4 +142,30 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func newArgoCDAzureClient(ctx context.Context) (*azure.Client, error) {
+	spEnv := os.Getenv("ARGOCD_AZURE_SERVICE_PRINCIPALS")
+	if spEnv == "" {
+		return nil, fmt.Errorf("ARGOCD_AZURE_SERVICE_PRINCIPALS environment variable not set")
+	}
+	servicePrincipals := strings.Split(spEnv, ",")
+	for i, sp := range servicePrincipals {
+		servicePrincipals[i] = strings.TrimSpace(sp)
+	}
+
+	appRoleID := os.Getenv("ARGOCD_AZURE_APP_ROLE_ID")
+	if appRoleID == "" {
+		return nil, fmt.Errorf("ARGOCD_AZURE_APP_ROLE_ID environment variable not set")
+	}
+
+	return azure.NewClientForTarget(ctx, servicePrincipals, appRoleID)
+}
+
+func envOrDefault(name, fallback string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	return value
 }

@@ -15,6 +15,8 @@ This controller works around this limitation by:
 3. Explicitly assigning those groups to your cluster authentication service principal(s) using a configured app role
 4. When the cluster authentication app is configured for application-group claims, Entra filters token groups to those assigned to the app, keeping the count below 200
 
+The controller can also reconcile Argo CD RBAC groups into a separate Argo CD app registration. This is useful for filtering Argo CD group claims until a supported Argo CD/OpenShift GitOps release includes Microsoft Entra group-overage handling, and for future Argo CD API access patterns where service principals need group-based authorization.
+
 ## How It Works
 
 The controller operates as follows:
@@ -24,6 +26,8 @@ The controller operates as follows:
 3. **Validates in Azure**: Looks up each group in Microsoft Entra ID by that Object ID
 4. **Assigns to Service Principals**: Creates app role assignments between the groups and your configured service principal(s)
 5. **Result**: Entra knows which groups are relevant for your Kubernetes authentication app and can include only those groups in the JWT token
+
+When Argo CD reconciliation is enabled, the controller also watches the configured `argocd-rbac-cm` ConfigMap and, when available, `AppProject` resources. It reads UUID group references from `policy.csv` `g` lines and `spec.roles[].groups[]`, validates them in Entra ID, and assigns them to a separate configured Argo CD service principal/app role target.
 
 For detailed reconciliation behavior (read-only Kubernetes RBAC, no finalizers, conflict handling, cleanup guarantees, and RBAC escalation semantics), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -251,6 +255,33 @@ The controller supports the following environment variables, normally set by the
 - **`AZURE_CLIENT_SECRET`** (optional): Client secret (only if not using Workload Identity)
 - **`AZURE_FEDERATED_TOKEN_FILE`** (optional): Path to federated token file for Workload Identity
 - **`AZURE_TOKEN_CREDENTIALS`** (recommended for production): Set to `prod` to disable Azure CLI, Azure Dev CLI, and Azure PowerShell authentication methods
+- **`ARGOCD_ENABLED`** (optional): Set to `true` to enable Argo CD group reconciliation
+- **`ARGOCD_RBAC_CONFIGMAP_NAMESPACE`** (optional): Namespace containing `argocd-rbac-cm` when Argo CD reconciliation is enabled (default: `argocd`)
+- **`ARGOCD_RBAC_CONFIGMAP_NAME`** (optional): Argo CD RBAC ConfigMap name (default: `argocd-rbac-cm`)
+- **`ARGOCD_APPPROJECTS_ENABLED`** (optional): Set to `false` to disable AppProject discovery (default: enabled when Argo CD reconciliation is enabled)
+- **`ARGOCD_AZURE_SERVICE_PRINCIPALS`** (required when Argo CD reconciliation is enabled): Comma-separated list of Argo CD service principal Object IDs
+- **`ARGOCD_AZURE_APP_ROLE_ID`** (required when Argo CD reconciliation is enabled): App role ID on the Argo CD app registration used when creating group assignments
+
+### Argo CD Reconciliation
+
+Argo CD reconciliation is opt-in and uses a separate Azure assignment target from Kubernetes RBAC reconciliation:
+
+```yaml
+argocd:
+  enabled: true
+  rbacConfigMap:
+    namespace: argocd
+    name: argocd-rbac-cm
+  appProjects:
+    enabled: true
+  azure:
+    servicePrincipals: <ARGOCD_SP_OBJECT_ID>
+    appRoleId: <ARGOCD_APP_ROLE_ID>
+```
+
+Only UUID-shaped group identifiers are processed. Non-UUID subjects such as `role:admin`, users, email addresses, and display-name aliases are ignored.
+
+The AppProject watcher is tolerant of clusters without the `argoproj.io` AppProject CRD. If the CRD is absent, the controller continues reconciling `argocd-rbac-cm` only.
 
 ### Command-line Flags
 

@@ -45,6 +45,20 @@ spec:
               value: {{ .Values.azure.appRoleId | quote }}
             - name: AZURE_TENANT_ID
               value: {{ .Values.azure.tenantId | quote }}
+            - name: ARGOCD_ENABLED
+              value: {{ .Values.argocd.enabled | quote }}
+            {{- if .Values.argocd.enabled }}
+            - name: ARGOCD_RBAC_CONFIGMAP_NAMESPACE
+              value: {{ .Values.argocd.rbacConfigMap.namespace | quote }}
+            - name: ARGOCD_RBAC_CONFIGMAP_NAME
+              value: {{ .Values.argocd.rbacConfigMap.name | quote }}
+            - name: ARGOCD_APPPROJECTS_ENABLED
+              value: {{ .Values.argocd.appProjects.enabled | quote }}
+            - name: ARGOCD_AZURE_SERVICE_PRINCIPALS
+              value: {{ .Values.argocd.azure.servicePrincipals | quote }}
+            - name: ARGOCD_AZURE_APP_ROLE_ID
+              value: {{ .Values.argocd.azure.appRoleId | quote }}
+            {{- end }}
             {{- if .Values.azure.clientId }}
             - name: AZURE_CLIENT_ID
               value: {{ .Values.azure.clientId | quote }}

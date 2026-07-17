@@ -36,6 +36,17 @@ azure:
   authorityHost: https://login.microsoftonline.com/
   tokenCredentials: prod
 
+argocd:
+  enabled: false
+  rbacConfigMap:
+    namespace: argocd
+    name: argocd-rbac-cm
+  appProjects:
+    enabled: true
+  azure:
+    servicePrincipals: ""
+    appRoleId: ""
+
 extraEnv: []
 
 resources:
