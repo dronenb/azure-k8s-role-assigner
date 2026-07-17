@@ -263,6 +263,7 @@ The controller supports the following environment variables, normally set by the
 - **`ARGOCD_APPPROJECTS_ENABLED`** (optional): Set to `false` to disable AppProject discovery (default: enabled when Argo CD reconciliation is enabled)
 - **`ARGOCD_AZURE_SERVICE_PRINCIPALS`** (required when Argo CD reconciliation is enabled): Comma-separated list of Argo CD service principal Object IDs
 - **`ARGOCD_AZURE_APP_ROLE_ID`** (required when Argo CD reconciliation is enabled): App role ID on the Argo CD app registration used when creating group assignments
+- **`http_proxy`**, **`https_proxy`**, **`no_proxy`** (optional): Proxy settings for outbound controller traffic, set by the Helm chart `proxy` values
 
 ### Argo CD Reconciliation
 
