@@ -268,31 +268,25 @@ tasks:
   e2e:
     desc: Run full end-to-end test suite (kind + Entra ID).
     cmds:
-      - task: e2e:infra-up
-      - task: e2e:cluster-up
-      - task: e2e:build-image
-      - task: e2e:load-image
-      - task: e2e:deploy
-      - task: e2e:create-rbac
-      - task: e2e:verify
-      - task: e2e:verify-deletion
-
-  e2e:ci:
-    desc: Run e2e suite in CI (downloads stable key from Key Vault first).
-    cmds:
-      - task: e2e:download-key
-      - task: e2e:download-user-password
-      - task: e2e:infra-up
-      - task: e2e:cluster-up
-      - task: e2e:build-image
-      - task: e2e:load-image
-      - task: e2e:deploy
-      - task: e2e:create-rbac
-      - task: e2e:verify
-      - task: e2e:verify-deletion
+      - |
+        repo_root="$(pwd)"
+        E2E=true \
+          E2E_TEST_USER_PASSWORD="{{.E2E_TEST_USER_PASSWORD}}" \
+          E2E_TEST_USER_PASSWORD_FILE="${repo_root}/{{.E2E_TEST_USER_PASSWORD_FILE}}" \
+          E2E_TEST_USER_UPN="{{.E2E_TEST_USER_UPN}}" \
+          TEST_GROUP_CRB_ID="{{.TEST_GROUP_CRB_ID}}" \
+          TEST_GROUP_RB_ID="{{.TEST_GROUP_RB_ID}}" \
+          E2E_NS="{{.E2E_NS}}" \
+          OIDC_ISSUER_URL="{{.OIDC_ISSUER_URL}}" \
+          KEY_VAULT_NAME="{{.KEY_VAULT_NAME}}" \
+          SIGNING_KEY_SECRET_NAME="{{.SIGNING_KEY_SECRET_NAME}}" \
+          E2E_TEST_USER_PASSWORD_SECRET_NAME="{{.E2E_TEST_USER_PASSWORD_SECRET_NAME}}" \
+          SA_KEY_FILE="${repo_root}/{{.SA_KEY_FILE}}" \
+          MAX_ATTEMPTS="{{.MAX_ATTEMPTS | default "30"}}" \
+          SLEEP_SECONDS="{{.SLEEP_SECONDS | default "10"}}" \
+          go test ./e2e -run TestE2E -count=1 -- -ginkgo.v
 
   e2e:download-key:
-    desc: Download the stable SA signing key from Key Vault.
     preconditions:
       - sh: '[ -n "{{.KEY_VAULT_NAME}}" ]'
         msg: "KEY_VAULT_NAME must be set (from tofu/ outputs)"
@@ -302,17 +296,19 @@ tasks:
       - |
         set -euo pipefail
         mkdir -p "{{.SA_KEY_DIR}}"
+        tmp_file="$(mktemp "{{.SA_KEY_DIR}}/sa-signing.key.XXXXXX")"
+        trap 'rm -f "${tmp_file}"' EXIT
         az keyvault secret show \
           --vault-name "{{.KEY_VAULT_NAME}}" \
           --name "{{.SIGNING_KEY_SECRET_NAME}}" \
-          --query value -o tsv > "{{.SA_KEY_FILE}}"
+          --query value -o tsv > "${tmp_file}"
+        mv "${tmp_file}" "{{.SA_KEY_FILE}}"
         chmod 600 "{{.SA_KEY_FILE}}"
         echo "Signing key written to {{.SA_KEY_FILE}}"
     status:
-      - test -f "{{.SA_KEY_FILE}}"
+      - test -s "{{.SA_KEY_FILE}}"
 
   e2e:download-user-password:
-    desc: Download the static e2e test user password from Key Vault.
     preconditions:
       - sh: '[ -n "{{.KEY_VAULT_NAME}}" ]'
         msg: "KEY_VAULT_NAME must be set (from tofu/ outputs)"
@@ -322,17 +318,19 @@ tasks:
       - |
         set -euo pipefail
         mkdir -p "{{.SA_KEY_DIR}}"
+        tmp_file="$(mktemp "{{.SA_KEY_DIR}}/e2e-test-user-password.XXXXXX")"
+        trap 'rm -f "${tmp_file}"' EXIT
         az keyvault secret show \
           --vault-name "{{.KEY_VAULT_NAME}}" \
           --name "{{.E2E_TEST_USER_PASSWORD_SECRET_NAME}}" \
-          --query value -o tsv > "{{.E2E_TEST_USER_PASSWORD_FILE}}"
+          --query value -o tsv > "${tmp_file}"
+        mv "${tmp_file}" "{{.E2E_TEST_USER_PASSWORD_FILE}}"
         chmod 600 "{{.E2E_TEST_USER_PASSWORD_FILE}}"
         echo "e2e test user password written to {{.E2E_TEST_USER_PASSWORD_FILE}}"
     status:
-      - test -f "{{.E2E_TEST_USER_PASSWORD_FILE}}"
+      - test -s "{{.E2E_TEST_USER_PASSWORD_FILE}}"
 
   e2e:infra-up:
-    desc: Provision Entra ID resources with OpenTofu.
     dir: e2e/tofu
     preconditions:
       - sh: '[ -n "{{.OIDC_ISSUER_URL}}" ]'
@@ -355,7 +353,6 @@ tasks:
         {{if .TF_VAR_name_suffix}}-var="name_suffix={{.TF_VAR_name_suffix}}"{{end}}
 
   e2e:infra-down:
-    desc: Destroy Entra ID resources with OpenTofu.
     dir: e2e/tofu
     preconditions:
       - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
@@ -385,7 +382,6 @@ tasks:
         done
 
   e2e:infra-output:
-    desc: Export OpenTofu outputs as environment variables.
     dir: e2e/tofu
     cmds:
       - |
@@ -399,7 +395,6 @@ tasks:
         echo "E2E_GROUP_RB_ID=$(tofu output -raw test_group_rb_id)"
 
   e2e:cluster-up:
-    desc: Create kind cluster for e2e tests.
     preconditions:
       - sh: '[ -n "{{.OIDC_ISSUER_URL}}" ]'
         msg: "OIDC_ISSUER_URL must be set"
@@ -468,7 +463,6 @@ tasks:
       - kind get clusters 2>/dev/null | grep -q '^{{.KIND_CLUSTER_NAME}}$'
 
   e2e:build-image:
-    desc: Build controller image as OCI tarball for e2e.
     cmds:
       - task: build-image
         vars:
@@ -477,14 +471,12 @@ tasks:
           IMG_TARBALL: e2e-image.tar
 
   e2e:load-image:
-    desc: Load the ko-built tarball into the kind cluster.
     preconditions:
       - test -f e2e-image.tar
     cmds:
       - kind load image-archive e2e-image.tar --name {{.KIND_CLUSTER_NAME}}
 
   e2e:deploy:
-    desc: Deploy controller with e2e configuration.
     cmds:
       - |
         set -euo pipefail
@@ -503,7 +495,6 @@ tasks:
       - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
 
   e2e:create-rbac:
-    desc: Create test RBAC bindings using Terraform-provisioned group IDs.
     cmds:
       - |
         set -euo pipefail
@@ -519,218 +510,7 @@ tasks:
           --group="${E2E_GROUP_RB_ID}" \
           --dry-run=client -o yaml | kubectl apply -f -
 
-  e2e:verify:
-    desc: Verify bound groups appear in Entra token via ROPC user flow.
-    preconditions:
-      - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
-        msg: "E2E_TEST_USER_UPN must be set"
-      - sh: '[ -n "{{.E2E_TEST_USER_PASSWORD}}" ] || [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]'
-        msg: "E2E_TEST_USER_PASSWORD must be set, or run task e2e:download-user-password"
-      - sh: '[ -n "{{.TEST_GROUP_CRB_ID}}" ]'
-        msg: "TEST_GROUP_CRB_ID must be set"
-      - sh: '[ -n "{{.TEST_GROUP_RB_ID}}" ]'
-        msg: "TEST_GROUP_RB_ID must be set"
-    vars:
-      MAX_ATTEMPTS: '{{.MAX_ATTEMPTS | default "30"}}'
-      SLEEP_SECONDS: '{{.SLEEP_SECONDS | default "10"}}'
-    cmds:
-      - |
-        set -euo pipefail
-        eval "$(task e2e:infra-output)"
-
-        E2E_PASSWORD="{{.E2E_TEST_USER_PASSWORD}}"
-        if [ -z "$E2E_PASSWORD" ] && [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]; then
-          E2E_PASSWORD="$(cat "{{.E2E_TEST_USER_PASSWORD_FILE}}")"
-        fi
-
-        if [ -z "$E2E_PASSWORD" ]; then
-          echo "E2E test user password is empty"
-          exit 1
-        fi
-
-        echo "Waiting for bound groups to appear in the Entra token..."
-        for attempt in $(seq 1 {{.MAX_ATTEMPTS}}); do
-          echo "Attempt ${attempt}/{{.MAX_ATTEMPTS}}"
-
-          # Ensure each attempt is independent of prior kubelogin cache state.
-          rm -rf "${HOME}/.kube/cache/kubelogin" "${HOME}/.kube/caches/kubelogin"
-
-          TOKEN_JSON="$(kubelogin get-token \
-            --login ropc \
-            --server-id "${CLUSTER_APP_CLIENT_ID}" \
-            --client-id "${CLUSTER_APP_CLIENT_ID}" \
-            --tenant-id "${AZURE_TENANT_ID}" \
-            --username "{{.E2E_TEST_USER_UPN}}" \
-            --password "$E2E_PASSWORD" 2>&1)" || {
-            echo "kubelogin get-token failed:"
-            echo "$TOKEN_JSON"
-            exit 1
-          }
-
-          ACCESS_TOKEN="$(echo "$TOKEN_JSON" | jq -r '.status.token // .token // empty')"
-
-          if [ -z "$ACCESS_TOKEN" ]; then
-            echo "Unable to extract access token from kubelogin output:"
-            echo "$TOKEN_JSON"
-            exit 1
-          fi
-
-          JWT_PAYLOAD_B64="$(printf '%s' "$ACCESS_TOKEN" | cut -d '.' -f2 | tr '_-' '/+')"
-          PADDED_PAYLOAD_B64="$(printf '%s' "$JWT_PAYLOAD_B64" | awk '{m=length($0)%4; if (m==2) printf "%s==",$0; else if (m==3) printf "%s=",$0; else if (m==1) printf "%s===",$0; else printf "%s",$0}')"
-          JWT_PAYLOAD="$(printf '%s' "$PADDED_PAYLOAD_B64" | openssl base64 -d -A 2>/dev/null || true)"
-
-          if [ -z "$JWT_PAYLOAD" ]; then
-            echo "Failed to decode JWT payload from access token"
-            exit 1
-          fi
-
-          GROUPS="$(echo "$JWT_PAYLOAD" | jq -r '.groups // [] | .[]')"
-
-          echo ""
-          echo "Groups in token:"
-          echo "$GROUPS"
-          echo ""
-
-          PASS=true
-          for gid in "{{.TEST_GROUP_CRB_ID}}" "{{.TEST_GROUP_RB_ID}}"; do
-            if echo "$GROUPS" | grep -q "$gid"; then
-              echo "PASS: Bound group $gid is present in token"
-            else
-              echo "MISS: Bound group $gid is not in token yet"
-              PASS=false
-            fi
-          done
-
-          if [ "$PASS" = true ]; then
-            echo ""
-            echo "All group verification checks passed!"
-            exit 0
-          fi
-
-          kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=10 || true
-          if [[ "$attempt" -eq {{.MAX_ATTEMPTS}} ]]; then
-            echo "Timed out waiting for bound groups in token."
-            exit 1
-          fi
-          sleep {{.SLEEP_SECONDS}}
-        done
-
-  e2e:verify-deletion:
-    desc: Verify that deleting a binding removes its group from the Entra token.
-    preconditions:
-      - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
-        msg: "E2E_TEST_USER_UPN must be set"
-      - sh: '[ -n "{{.E2E_TEST_USER_PASSWORD}}" ] || [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]'
-        msg: "E2E_TEST_USER_PASSWORD must be set, or run task e2e:download-user-password"
-      - sh: '[ -n "{{.TEST_GROUP_CRB_ID}}" ]'
-        msg: "TEST_GROUP_CRB_ID must be set"
-      - sh: '[ -n "{{.TEST_GROUP_RB_ID}}" ]'
-        msg: "TEST_GROUP_RB_ID must be set"
-    vars:
-      MAX_ATTEMPTS: '{{.MAX_ATTEMPTS | default "30"}}'
-      SLEEP_SECONDS: '{{.SLEEP_SECONDS | default "10"}}'
-    cmds:
-      - |
-        set -euo pipefail
-        eval "$(task e2e:infra-output)"
-
-        E2E_PASSWORD="{{.E2E_TEST_USER_PASSWORD}}"
-        if [ -z "$E2E_PASSWORD" ] && [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]; then
-          E2E_PASSWORD="$(cat "{{.E2E_TEST_USER_PASSWORD_FILE}}")"
-        fi
-
-        if [ -z "$E2E_PASSWORD" ]; then
-          echo "E2E test user password is empty"
-          exit 1
-        fi
-
-        # Delete only the RoleBinding, leaving the ClusterRoleBinding in place.
-        # After reconciliation, the RoleBinding's group must disappear from the
-        # token while the ClusterRoleBinding's group must remain. Asserting both
-        # conditions proves the controller de-assigned the specific group rather
-        # than the token simply dropping all groups.
-        echo "Deleting RoleBinding test-rb-binding (group ${TEST_GROUP_RB_ID})..."
-        kubectl delete rolebinding test-rb-binding -n "{{.E2E_NS}}" --ignore-not-found
-
-        echo "Waiting for the deleted binding's group to leave the Entra token..."
-        for attempt in $(seq 1 {{.MAX_ATTEMPTS}}); do
-          echo "Attempt ${attempt}/{{.MAX_ATTEMPTS}}"
-
-          # Ensure each attempt fetches a fresh token, independent of cache.
-          rm -rf "${HOME}/.kube/cache/kubelogin" "${HOME}/.kube/caches/kubelogin"
-
-          TOKEN_JSON="$(kubelogin get-token \
-            --login ropc \
-            --server-id "${CLUSTER_APP_CLIENT_ID}" \
-            --client-id "${CLUSTER_APP_CLIENT_ID}" \
-            --tenant-id "${AZURE_TENANT_ID}" \
-            --username "{{.E2E_TEST_USER_UPN}}" \
-            --password "$E2E_PASSWORD" 2>&1)" || {
-            echo "kubelogin get-token failed:"
-            echo "$TOKEN_JSON"
-            exit 1
-          }
-
-          ACCESS_TOKEN="$(echo "$TOKEN_JSON" | jq -r '.status.token // .token // empty')"
-
-          if [ -z "$ACCESS_TOKEN" ]; then
-            echo "Unable to extract access token from kubelogin output:"
-            echo "$TOKEN_JSON"
-            exit 1
-          fi
-
-          JWT_PAYLOAD_B64="$(printf '%s' "$ACCESS_TOKEN" | cut -d '.' -f2 | tr '_-' '/+')"
-          PADDED_PAYLOAD_B64="$(printf '%s' "$JWT_PAYLOAD_B64" | awk '{m=length($0)%4; if (m==2) printf "%s==",$0; else if (m==3) printf "%s=",$0; else if (m==1) printf "%s===",$0; else printf "%s",$0}')"
-          JWT_PAYLOAD="$(printf '%s' "$PADDED_PAYLOAD_B64" | openssl base64 -d -A 2>/dev/null || true)"
-
-          if [ -z "$JWT_PAYLOAD" ]; then
-            echo "Failed to decode JWT payload from access token"
-            exit 1
-          fi
-
-          GROUPS="$(echo "$JWT_PAYLOAD" | jq -r '.groups // [] | .[]')"
-
-          echo ""
-          echo "Groups in token:"
-          echo "$GROUPS"
-          echo ""
-
-          RB_ABSENT=true
-          if echo "$GROUPS" | grep -q "{{.TEST_GROUP_RB_ID}}"; then
-            RB_ABSENT=false
-          fi
-
-          CRB_PRESENT=false
-          if echo "$GROUPS" | grep -q "{{.TEST_GROUP_CRB_ID}}"; then
-            CRB_PRESENT=true
-          fi
-
-          if [ "$RB_ABSENT" = true ] && [ "$CRB_PRESENT" = true ]; then
-            echo "PASS: Deleted RoleBinding group {{.TEST_GROUP_RB_ID}} is gone from the token"
-            echo "PASS: ClusterRoleBinding group {{.TEST_GROUP_CRB_ID}} is still present"
-            echo ""
-            echo "Deletion verification passed!"
-            exit 0
-          fi
-
-          if [ "$RB_ABSENT" != true ]; then
-            echo "WAIT: Deleted group {{.TEST_GROUP_RB_ID}} is still present in token"
-          fi
-          if [ "$CRB_PRESENT" != true ]; then
-            # This should not happen; the CRB was not deleted. Surface loudly.
-            echo "ERROR: Still-bound group {{.TEST_GROUP_CRB_ID}} unexpectedly missing from token"
-          fi
-
-          kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=10 || true
-          if [[ "$attempt" -eq {{.MAX_ATTEMPTS}} ]]; then
-            echo "Timed out waiting for the deleted binding's group to leave the token."
-            exit 1
-          fi
-          sleep {{.SLEEP_SECONDS}}
-        done
-
   e2e:cleanup:
-    desc: Clean up e2e Kubernetes resources.
     cmds:
       - kubectl delete clusterrolebinding test-crb-binding --ignore-not-found
       - kubectl delete rolebinding test-rb-binding -n {{.E2E_NS}} --ignore-not-found
@@ -738,7 +518,6 @@ tasks:
       - helm uninstall azure-k8s-role-assigner --namespace azure-k8s-role-assigner --ignore-not-found
 
   e2e:cluster-down:
-    desc: Delete the kind e2e cluster.
     cmds:
       - task: kind:delete-internal
         vars:

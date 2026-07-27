@@ -204,8 +204,8 @@ export TEST_GROUP_RB_ID="$(cd tofu && tofu output -raw test_group_rb_id)"
 export E2E_TEST_USER_UPN="$(cd tofu && tofu output -raw e2e_test_user_upn)"
 export E2E_TEST_USER_PASSWORD_SECRET_NAME="$(cd tofu && tofu output -raw e2e_test_user_password_secret_name)"
 
-# Run full e2e (downloads key from Key Vault automatically)
-task e2e:ci
+# Run full e2e (downloads key and user password from Key Vault automatically)
+task e2e
 ```
 
 ### Setting up static infrastructure (admins only)
@@ -259,10 +259,7 @@ OpenTofu, Taskfile, or workflow files. It has two jobs:
 3. Starts a kind cluster with a stable OIDC issuer
 4. Provisions per-run Azure resources
 5. Builds, loads, deploys
-6. Verifies bound groups appear in the token (`task e2e:verify`)
-7. Verifies deleting a binding removes its group from the token, while a
-   still-bound group remains (`task e2e:verify-deletion`)
-8. Always cleans up with `task e2e:infra-down`
+6. Runs the Ginkgo e2e suite with `task e2e`, including setup, token claim verification, deletion verification, diagnostics, and cleanup
 
 No secrets stored in GitHub.
 

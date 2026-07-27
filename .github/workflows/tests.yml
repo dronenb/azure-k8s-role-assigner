@@ -179,40 +179,6 @@ jobs:
           curl -sSfL https://get.helm.sh/helm-v4.2.3-linux-amd64.tar.gz | tar xzf - -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
 
-      - name: Download signing key
-        env:
-          KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
-          SIGNING_KEY_SECRET_NAME: ${{ vars.SIGNING_KEY_SECRET_NAME }}
-        run: task e2e:download-key
-
-      - name: Provision Entra resources
-        env:
-          TF_VAR_name_suffix: gha-${{ github.run_id }}-${{ github.run_attempt }}
-          OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
-          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
-          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
-          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
-        run: task e2e:infra-up
-
-      - name: Create kind cluster
-        env:
-          OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
-        run: task e2e:cluster-up
-
-      - name: Verify cluster
-        run: kubectl cluster-info && kubectl get nodes -o wide
-
-      - name: Build and load e2e image
-        run: |
-          task e2e:build-image
-          task e2e:load-image
-
-      - name: Deploy controller
-        run: task e2e:deploy
-
-      - name: Create RBAC bindings
-        run: task e2e:create-rbac
-
       - name: Install kubelogin
         # Check latest action: TAG=$(gh api repos/azure/use-kubelogin/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/use-kubelogin/git/ref/tags/$TAG --jq .object.sha); echo "azure/use-kubelogin@$SHA # $TAG"
         # Check latest tool:   gh api repos/Azure/kubelogin/releases/latest --jq .tag_name
@@ -220,50 +186,14 @@ jobs:
         with:
           kubelogin-version: "v0.2.18"
 
-      - name: Download e2e test user password
+      - name: Run e2e tests
         env:
-          KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
           E2E_TEST_USER_PASSWORD_SECRET_NAME: ${{ vars.E2E_TEST_USER_PASSWORD_SECRET_NAME }}
-        run: |
-          set -euo pipefail
-          E2E_TEST_USER_PASSWORD="$(az keyvault secret show \
-            --vault-name "$KEY_VAULT_NAME" \
-            --name "$E2E_TEST_USER_PASSWORD_SECRET_NAME" \
-            --query value -o tsv)"
-          echo "::add-mask::$E2E_TEST_USER_PASSWORD"
-          echo "E2E_TEST_USER_PASSWORD=$E2E_TEST_USER_PASSWORD" >> "$GITHUB_ENV"
-
-      - name: Verify token group claims
-        env:
           E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
-          E2E_TEST_USER_PASSWORD: ${{ env.E2E_TEST_USER_PASSWORD }}
-          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
-          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
-        run: task e2e:verify
-
-      - name: Verify deletion removes group from token
-        env:
-          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
-          E2E_TEST_USER_PASSWORD: ${{ env.E2E_TEST_USER_PASSWORD }}
-          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
-          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
-        run: task e2e:verify-deletion
-
-      - name: Collect diagnostics
-        if: always()
-        run: |
-          set +e
-          kubectl get all -A
-          kubectl get rolebinding,clusterrolebinding -A
-          kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=200
-
-      - name: Cleanup Kubernetes resources
-        if: always()
-        run: task e2e:cleanup
-
-      - name: Destroy Entra resources
-        if: always()
-        env:
+          KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
           OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
-          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
-        run: task e2e:infra-down
+          SIGNING_KEY_SECRET_NAME: ${{ vars.SIGNING_KEY_SECRET_NAME }}
+          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
+          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+          TF_VAR_name_suffix: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        run: task e2e
