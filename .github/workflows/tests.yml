@@ -105,8 +105,8 @@ jobs:
 
       - name: Upload govulncheck SARIF to GitHub
         if: always() && hashFiles('govulncheck.sarif') != ''
-        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: govulncheck.sarif
 

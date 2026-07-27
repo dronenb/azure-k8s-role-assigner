@@ -4,15 +4,15 @@ This directory contains **per-run** Entra ID resources provisioned by OpenTofu d
 
 ## What it provisions
 
-| Resource                                                             | Purpose                                                                      |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Controller app registration + SP                                     | The identity the controller authenticates as (WIF via projected SA token)    |
+| Resource                                                             | Purpose                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Controller app registration + SP                                     | The identity the controller authenticates as (WIF via projected SA token)      |
 | Federated identity credential                                        | Links the controller service account to the controller app via OIDC issuer URL |
-| Graph API grants (`Group.Read.All`, `Application.ReadWrite.OwnedBy`) | Controller permissions to read groups and manage app role assignments        |
-| Cluster app registration + SP                                        | Represents the "cluster" resource — groups are assigned app roles on this SP |
-| `Cluster.Access` app role                                            | Custom app role on the cluster app (assigned to groups by the controller)    |
-| Argo CD app registration + SP                                        | Represents the Argo CD resource — groups are assigned app roles on this SP   |
-| Delegated Graph permission grant                                     | Allows the static e2e user to obtain ROPC tokens without interactive consent |
+| Graph API grants (`Group.Read.All`, `Application.ReadWrite.OwnedBy`) | Controller permissions to read groups and manage app role assignments          |
+| Cluster app registration + SP                                        | Represents the "cluster" resource — groups are assigned app roles on this SP   |
+| `Cluster.Access` app role                                            | Custom app role on the cluster app (assigned to groups by the controller)      |
+| Argo CD app registration + SP                                        | Represents the Argo CD resource — groups are assigned app roles on this SP     |
+| Delegated Graph permission grant                                     | Allows the static e2e user to obtain ROPC tokens without interactive consent   |
 
 Test groups are **not** created here — they come from the static infra (`tofu/`) and are passed through as variables.
 The e2e verification user is also **not** created here — it comes from static infra and is used by the verify step via ROPC.
@@ -88,35 +88,35 @@ tofu destroy
 
 ### Variables
 
-| Variable                    | Required | Default                   | Description                                                                  |
-| --------------------------- | -------- | ------------------------- | ---------------------------------------------------------------------------- |
-| `oidc_issuer_url`           | Yes      | —                         | OIDC issuer URL from static infra (`tofu output oidc_issuer_url` in `tofu/`) |
-| `test_group_crb_id`         | Yes      | —                         | ClusterRoleBinding group object ID (from static infra)                       |
-| `test_group_rb_id`          | Yes      | —                         | RoleBinding group object ID (from static infra)                              |
-| `test_group_argocd_configmap_id` | Yes      | —                         | Argo CD ConfigMap group object ID (from static infra)                        |
-| `test_group_argocd_appproject_id` | Yes      | —                         | Argo CD AppProject group object ID (from static infra)                       |
-| `e2e_test_user_upn`         | Yes      | —                         | UPN of static e2e test user (used to resolve object ID for delegated grant)  |
-| `name_suffix`               | No       | random 8-char             | Unique suffix to avoid collisions (set to GHA run ID in CI)                  |
-| `service_account_namespace` | No       | `azure-k8s-role-assigner` | K8s namespace of controller SA                                               |
-| `service_account_name`      | No       | `azure-k8s-role-assigner` | K8s service account name                                                     |
+| Variable                             | Required | Default                   | Description                                                                  |
+| ------------------------------------ | -------- | ------------------------- | ---------------------------------------------------------------------------- |
+| `oidc_issuer_url`                    | Yes      | —                         | OIDC issuer URL from static infra (`tofu output oidc_issuer_url` in `tofu/`) |
+| `test_group_crb_id`                  | Yes      | —                         | ClusterRoleBinding group object ID (from static infra)                       |
+| `test_group_rb_id`                   | Yes      | —                         | RoleBinding group object ID (from static infra)                              |
+| `test_group_argocd_configmap_id`     | Yes      | —                         | Argo CD ConfigMap group object ID (from static infra)                        |
+| `test_group_argocd_appproject_id`    | Yes      | —                         | Argo CD AppProject group object ID (from static infra)                       |
+| `e2e_test_user_upn`                  | Yes      | —                         | UPN of static e2e test user (used to resolve object ID for delegated grant)  |
+| `name_suffix`                        | No       | random 8-char             | Unique suffix to avoid collisions (set to GHA run ID in CI)                  |
+| `service_account_namespace`          | No       | `azure-k8s-role-assigner` | K8s namespace of controller SA                                               |
+| `service_account_name`               | No       | `azure-k8s-role-assigner` | K8s service account name                                                     |
 
 ### Outputs
 
-| Output                    | Description                                                      |
-| ------------------------- | ---------------------------------------------------------------- |
-| `tenant_id`               | Microsoft Entra tenant ID                                        |
-| `controller_client_id`    | Client ID the controller authenticates as                        |
-| `cluster_app_client_id`   | Client ID of the cluster app used as the OIDC token audience      |
-| `cluster_sp_object_id`    | SP where app role assignments are created                        |
-| `cluster_app_role_id`     | ID of the `Cluster.Access` app role                              |
-| `argocd_app_client_id`    | Client ID of the Argo CD app used as the OIDC token audience      |
-| `argocd_sp_object_id`     | SP where Argo CD app role assignments are created                 |
-| `argocd_app_role_id`      | ID of the `ArgoCD.Access` app role                                |
-| `test_group_crb_id`       | Object ID of ClusterRoleBinding group (pass-through)             |
-| `test_group_rb_id`        | Object ID of RoleBinding group (pass-through)                    |
-| `test_group_argocd_configmap_id` | Object ID of Argo CD ConfigMap group (pass-through)              |
-| `test_group_argocd_appproject_id` | Object ID of Argo CD AppProject group (pass-through)             |
-| `e2e_test_user_object_id` | Object ID of static e2e user (resolved from `e2e_test_user_upn`) |
+| Output                                | Description                                                      |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| `tenant_id`                           | Microsoft Entra tenant ID                                        |
+| `controller_client_id`                | Client ID the controller authenticates as                        |
+| `cluster_app_client_id`               | Client ID of the cluster app used as the OIDC token audience     |
+| `cluster_sp_object_id`                | SP where app role assignments are created                        |
+| `cluster_app_role_id`                 | ID of the `Cluster.Access` app role                              |
+| `argocd_app_client_id`                | Client ID of the Argo CD app used as the OIDC token audience     |
+| `argocd_sp_object_id`                 | SP where Argo CD app role assignments are created                |
+| `argocd_app_role_id`                  | ID of the `ArgoCD.Access` app role                               |
+| `test_group_crb_id`                   | Object ID of ClusterRoleBinding group (pass-through)             |
+| `test_group_rb_id`                    | Object ID of RoleBinding group (pass-through)                    |
+| `test_group_argocd_configmap_id`      | Object ID of Argo CD ConfigMap group (pass-through)              |
+| `test_group_argocd_appproject_id`     | Object ID of Argo CD AppProject group (pass-through)             |
+| `e2e_test_user_object_id`             | Object ID of static e2e user (resolved from `e2e_test_user_upn`) |
 
 ## Lifecycle
 

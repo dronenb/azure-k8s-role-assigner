@@ -1,3 +1,4 @@
+// Package controller contains Kubernetes reconcilers for RBAC group assignments.
 package controller
 
 import (
@@ -110,7 +111,7 @@ func (r *ArgoCDReconciler) controllerName() string {
 	return "argocd-" + strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(strings.ToLower(name))
 }
 
-// buildArgoCDDesiredGroupIDs returns the union of valid group IDs referenced by
+// BuildArgoCDDesiredGroupIDs returns the union of valid group IDs referenced by
 // argocd-rbac-cm policy.csv and AppProject role groups.
 func (r *ArgoCDReconciler) BuildArgoCDDesiredGroupIDs(ctx context.Context) (map[string]struct{}, error) {
 	logger := log.FromContext(ctx)
