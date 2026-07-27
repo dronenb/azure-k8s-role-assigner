@@ -142,6 +142,8 @@ resource "azuread_application_federated_identity_credential" "controller_k8s" {
 
 resource "random_uuid" "cluster_access_role_id" {}
 resource "random_uuid" "cluster_kubernetes_scope_id" {}
+resource "random_uuid" "argocd_access_role_id" {}
+resource "random_uuid" "argocd_api_scope_id" {}
 
 resource "azuread_application" "cluster" {
   display_name                   = "${local.base_name}-cluster"
@@ -261,6 +263,99 @@ resource "azuread_service_principal_delegated_permission_grant" "cluster_e2e_tes
   user_object_id = data.azuread_user.e2e_test_user.object_id
 }
 
+# --- Argo CD OIDC App Registration ---
+
+resource "azuread_application" "argocd" {
+  display_name                   = "${local.base_name}-argocd"
+  sign_in_audience               = "AzureADMyOrg"
+  fallback_public_client_enabled = true
+  owners = [
+    data.azuread_client_config.current.object_id,
+    azuread_service_principal.controller.object_id,
+  ]
+
+  required_resource_access {
+    resource_app_id = data.azuread_service_principal.microsoft_graph.client_id
+
+    resource_access {
+      id   = one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "email"])
+      type = "Scope"
+    }
+
+    resource_access {
+      id   = one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "openid"])
+      type = "Scope"
+    }
+
+    resource_access {
+      id   = one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "profile"])
+      type = "Scope"
+    }
+  }
+
+  group_membership_claims = ["ApplicationGroup"]
+
+  api {
+    requested_access_token_version = 2
+
+    oauth2_permission_scope {
+      admin_consent_description  = "Access Argo CD APIs"
+      admin_consent_display_name = "Access Argo CD"
+      enabled                    = true
+      id                         = random_uuid.argocd_api_scope_id.result
+      type                       = "User"
+      user_consent_description   = "Access Argo CD APIs"
+      user_consent_display_name  = "Access Argo CD"
+      value                      = "argocd"
+    }
+  }
+
+  optional_claims {
+    access_token {
+      name = "groups"
+    }
+  }
+
+  app_role {
+    allowed_member_types = ["User", "Application"]
+    description          = "Access to Argo CD"
+    display_name         = "Argo CD Access"
+    enabled              = true
+    id                   = random_uuid.argocd_access_role_id.result
+    value                = "ArgoCD.Access"
+  }
+
+  lifecycle {
+    ignore_changes = [identifier_uris]
+  }
+}
+
+resource "azuread_application_identifier_uri" "argocd_api" {
+  application_id = azuread_application.argocd.id
+  identifier_uri = "api://${azuread_application.argocd.client_id}"
+}
+
+resource "azuread_service_principal" "argocd" {
+  client_id                    = azuread_application.argocd.client_id
+  app_role_assignment_required = false
+  owners = [
+    data.azuread_client_config.current.object_id,
+    azuread_service_principal.controller.object_id,
+  ]
+}
+
+resource "azuread_service_principal_delegated_permission_grant" "argocd_e2e_test_user" {
+  service_principal_object_id          = azuread_service_principal.argocd.object_id
+  resource_service_principal_object_id = data.azuread_service_principal.microsoft_graph.object_id
+  claim_values = [
+    one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "email"]),
+    one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "openid"]),
+    one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "profile"])
+  ]
+
+  user_object_id = data.azuread_user.e2e_test_user.object_id
+}
+
 # --- Outputs ---
 
 output "tenant_id" {
@@ -286,6 +381,21 @@ output "cluster_sp_object_id" {
 output "cluster_app_role_id" {
   description = "ID of the Cluster.Access app role — set as AZURE_APP_ROLE_ID env var on the controller"
   value       = random_uuid.cluster_access_role_id.result
+}
+
+output "argocd_app_client_id" {
+  description = "Client ID of Argo CD app registration"
+  value       = azuread_application.argocd.client_id
+}
+
+output "argocd_sp_object_id" {
+  description = "Object ID of Argo CD service principal"
+  value       = azuread_service_principal.argocd.object_id
+}
+
+output "argocd_app_role_id" {
+  description = "ID of the ArgoCD.Access app role"
+  value       = random_uuid.argocd_access_role_id.result
 }
 
 output "test_group_crb_id" {
