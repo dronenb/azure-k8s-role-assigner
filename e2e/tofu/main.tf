@@ -55,6 +55,18 @@ variable "service_account_name" {
   default     = "azure-k8s-role-assigner"
 }
 
+variable "argocd_service_account_namespace" {
+  description = "Namespace of Argo CD server service account for federated identity credential"
+  type        = string
+  default     = "argocd"
+}
+
+variable "argocd_service_account_name" {
+  description = "Argo CD server service account name for federated identity credential"
+  type        = string
+  default     = "e2e-argocd-argocd-server"
+}
+
 variable "test_group_crb_id" {
   description = "Object ID of the static ClusterRoleBinding test group (from tofu/ outputs)"
   type        = string
@@ -62,6 +74,16 @@ variable "test_group_crb_id" {
 
 variable "test_group_rb_id" {
   description = "Object ID of the static RoleBinding test group (from tofu/ outputs)"
+  type        = string
+}
+
+variable "test_group_argocd_configmap_id" {
+  description = "Object ID of the static Argo CD ConfigMap test group (from tofu/ outputs)"
+  type        = string
+}
+
+variable "test_group_argocd_appproject_id" {
+  description = "Object ID of the static Argo CD AppProject test group (from tofu/ outputs)"
   type        = string
 }
 
@@ -314,6 +336,10 @@ resource "azuread_application" "argocd" {
     access_token {
       name = "groups"
     }
+
+    id_token {
+      name = "groups"
+    }
   }
 
   app_role {
@@ -342,6 +368,14 @@ resource "azuread_service_principal" "argocd" {
     data.azuread_client_config.current.object_id,
     azuread_service_principal.controller.object_id,
   ]
+}
+
+resource "azuread_application_federated_identity_credential" "argocd_k8s" {
+  application_id = azuread_application.argocd.id
+  display_name   = "argocd-kubernetes-e2e"
+  audiences      = ["api://AzureADTokenExchange"]
+  issuer         = var.oidc_issuer_url
+  subject        = "system:serviceaccount:${var.argocd_service_account_namespace}:${var.argocd_service_account_name}"
 }
 
 resource "azuread_service_principal_delegated_permission_grant" "argocd_e2e_test_user" {
@@ -406,6 +440,16 @@ output "test_group_crb_id" {
 output "test_group_rb_id" {
   description = "Object ID of RoleBinding test group (passthrough)"
   value       = var.test_group_rb_id
+}
+
+output "test_group_argocd_configmap_id" {
+  description = "Object ID of Argo CD ConfigMap test group (passthrough)"
+  value       = var.test_group_argocd_configmap_id
+}
+
+output "test_group_argocd_appproject_id" {
+  description = "Object ID of Argo CD AppProject test group (passthrough)"
+  value       = var.test_group_argocd_appproject_id
 }
 
 output "e2e_test_user_object_id" {

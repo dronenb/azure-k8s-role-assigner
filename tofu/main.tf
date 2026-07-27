@@ -387,6 +387,10 @@ resource "azuread_named_location" "github_actions_ips" {
     ip_ranges = each.value
     trusted   = true
   }
+
+  lifecycle {
+    ignore_changes = [ip]
+  }
 }
 
 # Block e2e test user sign-ins from outside GitHub Actions hosted runner IPs.
@@ -428,6 +432,22 @@ resource "azuread_group" "test_crb" {
 # Group bound to a RoleBinding in e2e tests
 resource "azuread_group" "test_rb" {
   display_name     = "${var.resource_prefix}-e2e-rb"
+  security_enabled = true
+  owners           = [data.azuread_client_config.current.object_id]
+  members          = [azuread_user.e2e_test_user.object_id]
+}
+
+# Group referenced by argocd-rbac-cm policy.csv in e2e tests
+resource "azuread_group" "test_argocd_configmap" {
+  display_name     = "${var.resource_prefix}-e2e-argocd-configmap"
+  security_enabled = true
+  owners           = [data.azuread_client_config.current.object_id]
+  members          = [azuread_user.e2e_test_user.object_id]
+}
+
+# Group referenced by Argo CD AppProject RBAC in e2e tests
+resource "azuread_group" "test_argocd" {
+  display_name     = "${var.resource_prefix}-e2e-argocd-appproject"
   security_enabled = true
   owners           = [data.azuread_client_config.current.object_id]
   members          = [azuread_user.e2e_test_user.object_id]
@@ -498,6 +518,16 @@ output "test_group_crb_id" {
 output "test_group_rb_id" {
   description = "Object ID of RoleBinding test group"
   value       = azuread_group.test_rb.object_id
+}
+
+output "test_group_argocd_configmap_id" {
+  description = "Object ID of Argo CD ConfigMap test group"
+  value       = azuread_group.test_argocd_configmap.object_id
+}
+
+output "test_group_argocd_appproject_id" {
+  description = "Object ID of Argo CD AppProject test group"
+  value       = azuread_group.test_argocd.object_id
 }
 
 output "e2e_test_user_object_id" {
