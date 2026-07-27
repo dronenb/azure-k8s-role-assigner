@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -100,31 +101,41 @@ func main() {
 	}
 
 	if strings.EqualFold(os.Getenv("ARGOCD_ENABLED"), "true") {
-		argocdAzureClient, err := newArgoCDAzureClient(ctx)
+		argocdInstances, err := argoCDInstancesFromEnv()
 		if err != nil {
-			setupLog.Error(err, "unable to create Argo CD Azure client")
+			setupLog.Error(err, "unable to parse Argo CD configuration")
 			os.Exit(1)
 		}
 
-		argocdReconciler := &controller.ArgoCDReconciler{
-			ConfigMapNamespace: envOrDefault("ARGOCD_RBAC_CONFIGMAP_NAMESPACE", "argocd"),
-			ConfigMapName:      envOrDefault("ARGOCD_RBAC_CONFIGMAP_NAME", "argocd-rbac-cm"),
-			AppProjectsEnabled: !strings.EqualFold(os.Getenv("ARGOCD_APPPROJECTS_ENABLED"), "false"),
-			ResyncPeriod:       resyncPeriod,
-		}
-		argocdStateReconciler := &controller.StateReconciler{
-			Client:               mgr.GetClient(),
-			Scheme:               mgr.GetScheme(),
-			AzureClient:          argocdAzureClient,
-			BuildDesiredGroupIDs: argocdReconciler.BuildArgoCDDesiredGroupIDs,
-		}
-		argocdReconciler.StateReconciler = argocdStateReconciler
+		for _, instance := range argocdInstances {
+			argocdAzureClient, err := newArgoCDAzureClient(ctx, instance.Azure.ServicePrincipals, instance.Azure.AppRoleID)
+			if err != nil {
+				setupLog.Error(err, "unable to create Argo CD Azure client", "instance", instance.Name)
+				os.Exit(1)
+			}
 
-		if err = argocdReconciler.SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ArgoCD")
-			os.Exit(1)
+			argocdReconciler := &controller.ArgoCDReconciler{
+				Name:               instance.Name,
+				ResourceNamespace:  instance.Resource.Namespace,
+				ResourceName:       instance.Resource.Name,
+				ConfigMapName:      instance.RBACConfigMap.Name,
+				AppProjectsEnabled: instance.AppProjects.Enabled,
+				ResyncPeriod:       resyncPeriod,
+			}
+			argocdStateReconciler := &controller.StateReconciler{
+				Client:               mgr.GetClient(),
+				Scheme:               mgr.GetScheme(),
+				AzureClient:          argocdAzureClient,
+				BuildDesiredGroupIDs: argocdReconciler.BuildArgoCDDesiredGroupIDs,
+			}
+			argocdReconciler.StateReconciler = argocdStateReconciler
+
+			if err = argocdReconciler.SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "ArgoCD", "instance", instance.Name)
+				os.Exit(1)
+			}
+			setupLog.Info("Argo CD reconciliation enabled", "instance", instance.Name, "namespace", instance.Resource.Namespace, "argocd", instance.Resource.Name)
 		}
-		setupLog.Info("Argo CD reconciliation enabled")
 	}
 
 	// Add health checks
@@ -144,19 +155,125 @@ func main() {
 	}
 }
 
-func newArgoCDAzureClient(ctx context.Context) (*azure.Client, error) {
-	spEnv := os.Getenv("ARGOCD_AZURE_SERVICE_PRINCIPALS")
-	if spEnv == "" {
-		return nil, fmt.Errorf("ARGOCD_AZURE_SERVICE_PRINCIPALS environment variable not set")
+type argoCDInstanceConfig struct {
+	Name           string                    `json:"name"`
+	Resource       argoCDResourceConfig      `json:"resource"`
+	RBACConfigMap  argoCDRBACConfigMapConfig `json:"rbacConfigMap"`
+	AppProjects    argoCDAppProjectsConfig   `json:"appProjects"`
+	AppProjectsSet bool                      `json:"-"`
+	Azure          argoCDAzureConfig         `json:"azure"`
+}
+
+type argoCDResourceConfig struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
+type argoCDRBACConfigMapConfig struct {
+	Name string `json:"name"`
+}
+
+type argoCDAppProjectsConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+type argoCDAzureConfig struct {
+	ServicePrincipals string `json:"servicePrincipals"`
+	AppRoleID         string `json:"appRoleId"`
+}
+
+func argoCDInstancesFromEnv() ([]argoCDInstanceConfig, error) {
+	instancesJSON := strings.TrimSpace(os.Getenv("ARGOCD_INSTANCES"))
+	if instancesJSON == "" {
+		return []argoCDInstanceConfig{{
+			Name: "default",
+			Resource: argoCDResourceConfig{
+				Namespace: envOrDefault("ARGOCD_RESOURCE_NAMESPACE", envOrDefault("ARGOCD_RBAC_CONFIGMAP_NAMESPACE", "argocd")),
+				Name:      os.Getenv("ARGOCD_RESOURCE_NAME"),
+			},
+			RBACConfigMap: argoCDRBACConfigMapConfig{
+				Name: envOrDefault("ARGOCD_RBAC_CONFIGMAP_NAME", "argocd-rbac-cm"),
+			},
+			AppProjects: argoCDAppProjectsConfig{Enabled: !strings.EqualFold(os.Getenv("ARGOCD_APPPROJECTS_ENABLED"), "false")},
+			Azure: argoCDAzureConfig{
+				ServicePrincipals: os.Getenv("ARGOCD_AZURE_SERVICE_PRINCIPALS"),
+				AppRoleID:         os.Getenv("ARGOCD_AZURE_APP_ROLE_ID"),
+			},
+		}}, nil
 	}
-	servicePrincipals := strings.Split(spEnv, ",")
+
+	var instances []argoCDInstanceConfig
+	if err := json.Unmarshal([]byte(instancesJSON), &instances); err != nil {
+		return nil, fmt.Errorf("failed to parse ARGOCD_INSTANCES JSON: %w", err)
+	}
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("ARGOCD_INSTANCES must contain at least one instance")
+	}
+
+	seenNames := map[string]struct{}{}
+	for i := range instances {
+		instance := &instances[i]
+		if instance.Name == "" {
+			instance.Name = fmt.Sprintf("instance-%d", i)
+		}
+		if _, exists := seenNames[instance.Name]; exists {
+			return nil, fmt.Errorf("duplicate Argo CD instance name %q", instance.Name)
+		}
+		seenNames[instance.Name] = struct{}{}
+
+		if instance.Resource.Namespace == "" {
+			return nil, fmt.Errorf("Argo CD instance %q resource.namespace must be set", instance.Name)
+		}
+		if instance.Resource.Name == "" {
+			return nil, fmt.Errorf("Argo CD instance %q resource.name must be set", instance.Name)
+		}
+		if instance.RBACConfigMap.Name == "" {
+			instance.RBACConfigMap.Name = "argocd-rbac-cm"
+		}
+		if !instance.AppProjectsSet {
+			instance.AppProjects.Enabled = true
+		}
+	}
+
+	return instances, nil
+}
+
+func (c *argoCDInstanceConfig) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Name          string                    `json:"name"`
+		Resource      argoCDResourceConfig      `json:"resource"`
+		RBACConfigMap argoCDRBACConfigMapConfig `json:"rbacConfigMap"`
+		AppProjects   *argoCDAppProjectsConfig  `json:"appProjects"`
+		Azure         argoCDAzureConfig         `json:"azure"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	c.Name = raw.Name
+	c.Resource = raw.Resource
+	c.RBACConfigMap = raw.RBACConfigMap
+	c.Azure = raw.Azure
+	if raw.AppProjects != nil {
+		c.AppProjects = *raw.AppProjects
+		c.AppProjectsSet = true
+	} else {
+		c.AppProjects = argoCDAppProjectsConfig{}
+		c.AppProjectsSet = false
+	}
+	return nil
+}
+
+func newArgoCDAzureClient(ctx context.Context, servicePrincipalsEnv, appRoleID string) (*azure.Client, error) {
+	if servicePrincipalsEnv == "" {
+		return nil, fmt.Errorf("Argo CD servicePrincipals is required")
+	}
+	servicePrincipals := strings.Split(servicePrincipalsEnv, ",")
 	for i, sp := range servicePrincipals {
 		servicePrincipals[i] = strings.TrimSpace(sp)
 	}
 
-	appRoleID := os.Getenv("ARGOCD_AZURE_APP_ROLE_ID")
 	if appRoleID == "" {
-		return nil, fmt.Errorf("ARGOCD_AZURE_APP_ROLE_ID environment variable not set")
+		return nil, fmt.Errorf("Argo CD appRoleId is required")
 	}
 
 	return azure.NewClientForTarget(ctx, servicePrincipals, appRoleID)

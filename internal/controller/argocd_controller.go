@@ -24,19 +24,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-var appProjectGVK = schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "AppProject"}
+var (
+	appProjectGVK = schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "AppProject"}
+	argoCDGVK     = schema.GroupVersionKind{Group: "argoproj.io", Version: "v1beta1", Kind: "ArgoCD"}
+)
 
 // ArgoCDReconciler reconciles Argo CD RBAC groups into an Argo CD app registration.
 type ArgoCDReconciler struct {
 	*StateReconciler
 
-	ConfigMapNamespace string
+	Name               string
+	ResourceNamespace  string
+	ResourceName       string
 	ConfigMapName      string
 	AppProjectsEnabled bool
 	ResyncPeriod       time.Duration
 }
 
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups=argoproj.io,resources=argocds,verbs=get;list;watch
 // +kubebuilder:rbac:groups=argoproj.io,resources=appprojects,verbs=get;list;watch
 
 // Reconcile converges Azure group assignments against all configured Argo CD RBAC sources.
@@ -61,11 +67,24 @@ func (r *ArgoCDReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 // SetupWithManager sets up the controller with the Manager.
 func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	cmPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		return obj.GetNamespace() == r.ConfigMapNamespace && obj.GetName() == r.ConfigMapName
+		return obj.GetNamespace() == r.ResourceNamespace && obj.GetName() == r.ConfigMapName
+	})
+	appProjectPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		return obj.GetNamespace() == r.ResourceNamespace
+	})
+	argoCDPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		return obj.GetNamespace() == r.ResourceNamespace && obj.GetName() == r.ResourceName
 	})
 
 	b := ctrl.NewControllerManagedBy(mgr).
+		Named(r.controllerName()).
 		For(&corev1.ConfigMap{}, builder.WithPredicates(cmPredicate))
+
+	if r.ResourceName != "" {
+		argoCD := &unstructured.Unstructured{}
+		argoCD.SetGroupVersionKind(argoCDGVK)
+		b = b.Watches(argoCD, &handler.EnqueueRequestForObject{}, builder.WithPredicates(argoCDPredicate))
+	}
 
 	if r.AppProjectsEnabled {
 		if _, err := mgr.GetRESTMapper().RESTMapping(appProjectGVK.GroupKind(), appProjectGVK.Version); err != nil {
@@ -76,11 +95,19 @@ func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		} else {
 			appProject := &unstructured.Unstructured{}
 			appProject.SetGroupVersionKind(appProjectGVK)
-			b = b.Watches(appProject, &handler.EnqueueRequestForObject{})
+			b = b.Watches(appProject, &handler.EnqueueRequestForObject{}, builder.WithPredicates(appProjectPredicate))
 		}
 	}
 
 	return b.Complete(r)
+}
+
+func (r *ArgoCDReconciler) controllerName() string {
+	name := r.Name
+	if name == "" {
+		name = r.ResourceNamespace
+	}
+	return "argocd-" + strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(strings.ToLower(name))
 }
 
 // buildArgoCDDesiredGroupIDs returns the union of valid group IDs referenced by
@@ -88,14 +115,30 @@ func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ArgoCDReconciler) BuildArgoCDDesiredGroupIDs(ctx context.Context) (map[string]struct{}, error) {
 	logger := log.FromContext(ctx)
 	candidates := make(map[string]struct{})
+	if r.ResourceName != "" {
+		argoCD := &unstructured.Unstructured{}
+		argoCD.SetGroupVersionKind(argoCDGVK)
+		argoCDKey := types.NamespacedName{Namespace: r.ResourceNamespace, Name: r.ResourceName}
+		if err := r.Get(ctx, argoCDKey, argoCD); err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("ArgoCD resource not found; desired Argo CD RBAC groups are empty", "namespace", r.ResourceNamespace, "name", r.ResourceName)
+				return r.resolveCandidateGroupIDs(ctx, candidates)
+			}
+			return nil, fmt.Errorf("failed to get ArgoCD resource %s: %w", argoCDKey.String(), err)
+		}
+		if !argoCD.GetDeletionTimestamp().IsZero() {
+			logger.Info("ArgoCD resource is deleting; desired Argo CD RBAC groups are empty", "namespace", r.ResourceNamespace, "name", r.ResourceName)
+			return r.resolveCandidateGroupIDs(ctx, candidates)
+		}
+	}
 
 	cm := &corev1.ConfigMap{}
-	cmKey := types.NamespacedName{Namespace: r.ConfigMapNamespace, Name: r.ConfigMapName}
+	cmKey := types.NamespacedName{Namespace: r.ResourceNamespace, Name: r.ConfigMapName}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to get Argo CD RBAC ConfigMap %s: %w", cmKey.String(), err)
 		}
-		logger.Info("Argo CD RBAC ConfigMap not found; continuing with other sources", "namespace", r.ConfigMapNamespace, "name", r.ConfigMapName)
+		logger.Info("Argo CD RBAC ConfigMap not found; continuing with other sources", "namespace", r.ResourceNamespace, "name", r.ConfigMapName)
 	} else if cm.DeletionTimestamp.IsZero() {
 		for key, policy := range cm.Data {
 			if !isArgoCDPolicyCSVKey(key) {
@@ -124,7 +167,7 @@ func (r *ArgoCDReconciler) buildAppProjectCandidateGroupIDs(ctx context.Context)
 	appProjects := &unstructured.UnstructuredList{}
 	appProjects.SetGroupVersionKind(schema.GroupVersionKind{Group: appProjectGVK.Group, Version: appProjectGVK.Version, Kind: "AppProjectList"})
 
-	if err := r.List(ctx, appProjects); err != nil {
+	if err := r.List(ctx, appProjects, client.InNamespace(r.ResourceNamespace)); err != nil {
 		if apierrutil.IsNoMatchError(err) {
 			return map[string]struct{}{}, nil
 		}

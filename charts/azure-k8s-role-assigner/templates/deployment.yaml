@@ -48,8 +48,14 @@ spec:
             - name: ARGOCD_ENABLED
               value: {{ .Values.argocd.enabled | quote }}
             {{- if .Values.argocd.enabled }}
-            - name: ARGOCD_RBAC_CONFIGMAP_NAMESPACE
-              value: {{ .Values.argocd.rbacConfigMap.namespace | quote }}
+            {{- if .Values.argocd.instances }}
+            - name: ARGOCD_INSTANCES
+              value: {{ .Values.argocd.instances | toJson | quote }}
+            {{- else }}
+            - name: ARGOCD_RESOURCE_NAMESPACE
+              value: {{ .Values.argocd.resource.namespace | quote }}
+            - name: ARGOCD_RESOURCE_NAME
+              value: {{ .Values.argocd.resource.name | quote }}
             - name: ARGOCD_RBAC_CONFIGMAP_NAME
               value: {{ .Values.argocd.rbacConfigMap.name | quote }}
             - name: ARGOCD_APPPROJECTS_ENABLED
@@ -58,6 +64,7 @@ spec:
               value: {{ .Values.argocd.azure.servicePrincipals | quote }}
             - name: ARGOCD_AZURE_APP_ROLE_ID
               value: {{ .Values.argocd.azure.appRoleId | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.azure.clientId }}
             - name: AZURE_CLIENT_ID

@@ -687,6 +687,10 @@ tasks:
       - |
         set -euo pipefail
         eval "$(task e2e:infra-output)"
+        argocd_instances="$(jq -cn \
+          --arg sp "${ARGOCD_AZURE_SERVICE_PRINCIPALS}" \
+          --arg role "${ARGOCD_AZURE_APP_ROLE_ID}" \
+          '[{name: "e2e", resource: {namespace: "argocd", name: "e2e-argocd"}, rbacConfigMap: {name: "argocd-rbac-cm"}, appProjects: {enabled: true}, azure: {servicePrincipals: $sp, appRoleId: $role}}]')"
         helm upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner \
           --namespace azure-k8s-role-assigner \
           --create-namespace \
@@ -699,10 +703,7 @@ tasks:
           --set-string azure.clientId="${AZURE_CLIENT_ID}" \
           --set-string azure.appRoleId="${AZURE_APP_ROLE_ID}" \
           --set-string argocd.enabled=true \
-          --set-string argocd.rbacConfigMap.namespace=argocd \
-          --set-string argocd.rbacConfigMap.name=argocd-rbac-cm \
-          --set-literal argocd.azure.servicePrincipals="${ARGOCD_AZURE_SERVICE_PRINCIPALS}" \
-          --set-string argocd.azure.appRoleId="${ARGOCD_AZURE_APP_ROLE_ID}"
+          --set-json "argocd.instances=${argocd_instances}"
       - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
 
   e2e:create-rbac:

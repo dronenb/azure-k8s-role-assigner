@@ -23,16 +23,15 @@ rules:
       - get
       - list
       - watch
-  {{- if .Values.argocd.appProjects.enabled }}
   - apiGroups:
       - argoproj.io
     resources:
+      - argocds
       - appprojects
     verbs:
       - get
       - list
       - watch
-  {{- end }}
   {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

@@ -27,7 +27,7 @@ The controller operates as follows:
 4. **Assigns to Service Principals**: Creates app role assignments between the groups and your configured service principal(s)
 5. **Result**: Entra knows which groups are relevant for your Kubernetes authentication app and can include only those groups in the JWT token
 
-When Argo CD reconciliation is enabled, the controller also watches the configured `argocd-rbac-cm` ConfigMap and, when available, `AppProject` resources. It reads UUID group references from `policy.csv` `g` lines and `spec.roles[].groups[]`, validates them in Entra ID, and assigns them to a separate configured Argo CD service principal/app role target.
+When Argo CD reconciliation is enabled, the controller watches configured `ArgoCD` resources and reconciles each resource's namespace-local `argocd-rbac-cm` ConfigMap and, when available, same-namespace `AppProject` resources. It reads UUID group references from `policy.csv` `g` lines and `spec.roles[].groups[]`, validates them in Entra ID, and assigns them to the Argo CD service principal/app role target configured for that ArgoCD resource.
 
 For detailed reconciliation behavior (read-only Kubernetes RBAC, no finalizers, conflict handling, cleanup guarantees, and RBAC escalation semantics), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -256,7 +256,9 @@ The controller supports the following environment variables, normally set by the
 - **`AZURE_FEDERATED_TOKEN_FILE`** (optional): Path to federated token file for Workload Identity
 - **`AZURE_TOKEN_CREDENTIALS`** (recommended for production): Set to `prod` to disable Azure CLI, Azure Dev CLI, and Azure PowerShell authentication methods
 - **`ARGOCD_ENABLED`** (optional): Set to `true` to enable Argo CD group reconciliation
-- **`ARGOCD_RBAC_CONFIGMAP_NAMESPACE`** (optional): Namespace containing `argocd-rbac-cm` when Argo CD reconciliation is enabled (default: `argocd`)
+- **`ARGOCD_INSTANCES`** (optional): JSON array of Argo CD instances. Each instance identifies an `ArgoCD` custom resource and Azure assignment target.
+- **`ARGOCD_RESOURCE_NAMESPACE`** (optional): Namespace containing the single ArgoCD resource when `ARGOCD_INSTANCES` is unset (default: `argocd`)
+- **`ARGOCD_RESOURCE_NAME`** (optional): Single ArgoCD resource name when `ARGOCD_INSTANCES` is unset. When set, the controller only reconciles while that resource exists.
 - **`ARGOCD_RBAC_CONFIGMAP_NAME`** (optional): Argo CD RBAC ConfigMap name (default: `argocd-rbac-cm`)
 - **`ARGOCD_APPPROJECTS_ENABLED`** (optional): Set to `false` to disable AppProject discovery (default: enabled when Argo CD reconciliation is enabled)
 - **`ARGOCD_AZURE_SERVICE_PRINCIPALS`** (required when Argo CD reconciliation is enabled): Comma-separated list of Argo CD service principal Object IDs
@@ -269,8 +271,10 @@ Argo CD reconciliation is opt-in and uses a separate Azure assignment target fro
 ```yaml
 argocd:
   enabled: true
-  rbacConfigMap:
+  resource:
     namespace: argocd
+    name: argocd
+  rbacConfigMap:
     name: argocd-rbac-cm
   appProjects:
     enabled: true
@@ -279,7 +283,88 @@ argocd:
     appRoleId: <ARGOCD_APP_ROLE_ID>
 ```
 
+For multiple Argo CD installations, configure one instance per `ArgoCD` custom resource. The controller reads each instance's `argocd-rbac-cm` and same-namespace `AppProject` resources from the ArgoCD resource namespace, then reconciles those groups only to that instance's Azure target:
+
+```yaml
+argocd:
+  enabled: true
+  instances:
+    - name: platform
+      resource:
+        namespace: argocd-platform
+        name: platform
+      rbacConfigMap:
+        name: argocd-rbac-cm
+      appProjects:
+        enabled: true
+      azure:
+        servicePrincipals: <PLATFORM_ARGOCD_SP_OBJECT_ID>
+        appRoleId: <PLATFORM_ARGOCD_APP_ROLE_ID>
+    - name: tenant-a
+      resource:
+        namespace: argocd-tenant-a
+        name: tenant-a
+      rbacConfigMap:
+        name: argocd-rbac-cm
+      appProjects:
+        enabled: true
+      azure:
+        servicePrincipals: <TENANT_A_ARGOCD_SP_OBJECT_ID>
+        appRoleId: <TENANT_A_ARGOCD_APP_ROLE_ID>
+```
+
+For example, if the Operator manages two Argo CD instances and one of them allows `Application` resources in team namespaces, the important alignment is:
+
+```yaml
+apiVersion: argoproj.io/v1beta1
+kind: ArgoCD
+metadata:
+  name: platform
+  namespace: argocd-platform
+spec:
+  sourceNamespaces:
+    - team-*
+    - /^apps-[a-z0-9-]+$/
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: team-project
+  namespace: argocd-platform
+spec:
+  sourceNamespaces:
+    - team-a
+  roles:
+    - name: deployer
+      groups:
+        - 00000000-0000-0000-0000-000000000000
+```
+
+```yaml
+argocd:
+  enabled: true
+  instances:
+    - name: platform
+      resource:
+        namespace: argocd-platform
+        name: platform
+      azure:
+        servicePrincipals: <PLATFORM_ARGOCD_SP_OBJECT_ID>
+        appRoleId: <PLATFORM_ARGOCD_APP_ROLE_ID>
+    - name: tenant-a
+      resource:
+        namespace: argocd-tenant-a
+        name: tenant-a
+      azure:
+        servicePrincipals: <TENANT_A_ARGOCD_SP_OBJECT_ID>
+        appRoleId: <TENANT_A_ARGOCD_APP_ROLE_ID>
+```
+
+The `team-project` group above is reconciled to the `platform` Azure target because the `AppProject` is in `argocd-platform`, the namespace of the `platform` `ArgoCD` resource. The `team-*` and regex entries control where `Application` resources may be created; they do not move `AppProject` discovery into those namespaces.
+
 Only UUID-shaped group identifiers are processed. Non-UUID subjects such as `role:admin`, users, email addresses, and display-name aliases are ignored.
+
+For Argo CD's `Applications in any namespace` feature, `spec.sourceNamespaces` on the `ArgoCD` resource controls where `Application` resources may live, and `spec.sourceNamespaces` on an `AppProject` controls which application namespaces may use that project. `AppProject` resources themselves remain in the Argo CD control-plane namespace, so this controller reads AppProject RBAC groups from the configured ArgoCD resource namespace only. It does not scan the application source namespaces for AppProjects.
 
 The AppProject watcher is tolerant of clusters without the `argoproj.io` AppProject CRD. If the CRD is absent, the controller continues reconciling `argocd-rbac-cm` only.
 
