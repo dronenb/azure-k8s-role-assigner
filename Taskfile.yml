@@ -20,11 +20,15 @@ vars:
   E2E_TEST_USER_PASSWORD_SECRET_NAME: '{{.E2E_TEST_USER_PASSWORD_SECRET_NAME | default "e2e-test-user-password"}}'
   TEST_GROUP_CRB_ID: "{{.TEST_GROUP_CRB_ID}}"
   TEST_GROUP_RB_ID: "{{.TEST_GROUP_RB_ID}}"
+  TEST_GROUP_ARGOCD_CONFIGMAP_ID: "{{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}}"
+  TEST_GROUP_ARGOCD_APPPROJECT_ID: "{{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}"
+  ARGOCD_OPERATOR_VERSION: '{{.ARGOCD_OPERATOR_VERSION | default "v0.18.0"}}'
   E2E_TEST_USER_UPN: "{{.E2E_TEST_USER_UPN}}"
   E2E_TEST_USER_PASSWORD: "{{.E2E_TEST_USER_PASSWORD}}"
   SA_KEY_DIR: '{{.SA_KEY_DIR | default ".e2e"}}'
   SA_KEY_FILE: '{{.SA_KEY_DIR | default ".e2e"}}/sa-signing.key'
   E2E_TEST_USER_PASSWORD_FILE: '{{.SA_KEY_DIR | default ".e2e"}}/e2e-test-user-password'
+  TOFU_BASE_PARALLELISM: '{{.TOFU_BASE_PARALLELISM | default "25"}}'
 
 tasks:
   default:
@@ -263,6 +267,32 @@ tasks:
       - task: kind:load-image
       - task: kind:deploy
 
+  # --- Static Infrastructure ---
+
+  tofu:init:
+    desc: Initialize static OpenTofu infrastructure.
+    dir: tofu
+    cmds:
+      - tofu init -input=false
+
+  tofu:plan:
+    desc: Plan static OpenTofu infrastructure with higher parallelism for many Entra groups.
+    dir: tofu
+    cmds:
+      - tofu plan -input=false -parallelism={{.TOFU_BASE_PARALLELISM}} {{.CLI_ARGS}}
+
+  tofu:apply:
+    desc: Apply static OpenTofu infrastructure with higher parallelism for many Entra groups.
+    dir: tofu
+    cmds:
+      - tofu apply -input=false -parallelism={{.TOFU_BASE_PARALLELISM}} {{.CLI_ARGS}}
+
+  tofu:destroy:
+    desc: Destroy static OpenTofu infrastructure with higher parallelism for many Entra groups.
+    dir: tofu
+    cmds:
+      - tofu destroy -input=false -parallelism={{.TOFU_BASE_PARALLELISM}} {{.CLI_ARGS}}
+
   # --- E2E Testing ---
 
   e2e:
@@ -270,11 +300,14 @@ tasks:
     cmds:
       - task: e2e:infra-up
       - task: e2e:cluster-up
+      - task: e2e:argocd-up
       - task: e2e:build-image
       - task: e2e:load-image
       - task: e2e:deploy
       - task: e2e:create-rbac
+      - task: e2e:create-argocd-rbac
       - task: e2e:verify
+      - task: e2e:verify-argocd
       - task: e2e:verify-deletion
 
   e2e:ci:
@@ -284,11 +317,14 @@ tasks:
       - task: e2e:download-user-password
       - task: e2e:infra-up
       - task: e2e:cluster-up
+      - task: e2e:argocd-up
       - task: e2e:build-image
       - task: e2e:load-image
       - task: e2e:deploy
       - task: e2e:create-rbac
+      - task: e2e:create-argocd-rbac
       - task: e2e:verify
+      - task: e2e:verify-argocd
       - task: e2e:verify-deletion
 
   e2e:download-key:
@@ -341,6 +377,10 @@ tasks:
         msg: "TEST_GROUP_CRB_ID must be set (from tofu/ outputs)"
       - sh: '[ -n "{{.TEST_GROUP_RB_ID}}" ]'
         msg: "TEST_GROUP_RB_ID must be set (from tofu/ outputs)"
+      - sh: '[ -n "{{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}}" ]'
+        msg: "TEST_GROUP_ARGOCD_CONFIGMAP_ID must be set (from tofu/ outputs)"
+      - sh: '[ -n "{{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}" ]'
+        msg: "TEST_GROUP_ARGOCD_APPPROJECT_ID must be set (from tofu/ outputs)"
       - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
         msg: "E2E_TEST_USER_UPN must be set (from tofu/ outputs)"
     cmds:
@@ -351,6 +391,8 @@ tasks:
         -var="static_oidc_issuer_url={{.OIDC_ISSUER_URL}}"
         -var="test_group_crb_id={{.TEST_GROUP_CRB_ID}}"
         -var="test_group_rb_id={{.TEST_GROUP_RB_ID}}"
+        -var="test_group_argocd_configmap_id={{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}}"
+        -var="test_group_argocd_appproject_id={{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}"
         -var="e2e_test_user_upn={{.E2E_TEST_USER_UPN}}"
         {{if .TF_VAR_name_suffix}}-var="name_suffix={{.TF_VAR_name_suffix}}"{{end}}
 
@@ -370,6 +412,8 @@ tasks:
             -var="static_oidc_issuer_url={{.OIDC_ISSUER_URL}}" \
             -var="test_group_crb_id={{.TEST_GROUP_CRB_ID | default "placeholder"}}" \
             -var="test_group_rb_id={{.TEST_GROUP_RB_ID | default "placeholder"}}" \
+            -var="test_group_argocd_configmap_id={{.TEST_GROUP_ARGOCD_CONFIGMAP_ID | default "placeholder"}}" \
+            -var="test_group_argocd_appproject_id={{.TEST_GROUP_ARGOCD_APPPROJECT_ID | default "placeholder"}}" \
             -var="e2e_test_user_upn={{.E2E_TEST_USER_UPN}}"; then
             exit 0
           fi
@@ -394,9 +438,14 @@ tasks:
         echo "AZURE_CLIENT_ID=$(tofu output -raw controller_client_id)"
         echo "AZURE_SERVICE_PRINCIPALS=$(tofu output -raw cluster_sp_object_id)"
         echo "AZURE_APP_ROLE_ID=$(tofu output -raw cluster_app_role_id)"
+        echo "ARGOCD_AZURE_SERVICE_PRINCIPALS=$(tofu output -raw argocd_sp_object_id)"
+        echo "ARGOCD_AZURE_APP_ROLE_ID=$(tofu output -raw argocd_app_role_id)"
+        echo "ARGOCD_APP_CLIENT_ID=$(tofu output -raw argocd_app_client_id)"
         echo "CLUSTER_APP_CLIENT_ID=$(tofu output -raw cluster_app_client_id)"
         echo "E2E_GROUP_CRB_ID=$(tofu output -raw test_group_crb_id)"
         echo "E2E_GROUP_RB_ID=$(tofu output -raw test_group_rb_id)"
+        echo "E2E_GROUP_ARGOCD_CONFIGMAP_ID=$(tofu output -raw test_group_argocd_configmap_id)"
+        echo "E2E_GROUP_ARGOCD_APPPROJECT_ID=$(tofu output -raw test_group_argocd_appproject_id)"
 
   e2e:cluster-up:
     desc: Create kind cluster for e2e tests.
@@ -467,6 +516,155 @@ tasks:
     status:
       - kind get clusters 2>/dev/null | grep -q '^{{.KIND_CLUSTER_NAME}}$'
 
+  e2e:argocd-up:
+    desc: Install pinned Argo CD Operator and wait for Argo CD API readiness.
+    vars:
+      ARGOCD_NAME: e2e-argocd
+    cmds:
+      - kubectl apply --server-side -k github.com/argoproj-labs/argocd-operator/config/default?ref={{.ARGOCD_OPERATOR_VERSION}}
+      - kubectl rollout status deployment/argocd-operator-controller-manager -n argocd-operator-system --timeout=5m
+      - kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+      - |
+        set -euo pipefail
+        eval "$(task e2e:infra-output)"
+
+        issuer="https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0"
+        kubectl apply -n argocd -f - <<EOF
+        apiVersion: argoproj.io/v1beta1
+        kind: ArgoCD
+        metadata:
+          name: {{.ARGOCD_NAME}}
+        spec:
+          extraConfig:
+            url: http://{{.ARGOCD_NAME}}-server
+          oidcConfig: |
+            name: Microsoft Entra ID
+            issuer: ${issuer}
+            clientID: ${ARGOCD_APP_CLIENT_ID}
+            azure:
+              useWorkloadIdentity: true
+            requestedScopes:
+              - openid
+              - profile
+              - email
+            requestedIDTokenClaims:
+              groups:
+                essential: true
+                value: ApplicationGroup
+          server:
+            annotations:
+              azure.workload.identity/client-id: ${ARGOCD_APP_CLIENT_ID}
+            env:
+              - name: AZURE_CLIENT_ID
+                value: ${ARGOCD_APP_CLIENT_ID}
+              - name: AZURE_TENANT_ID
+                value: ${AZURE_TENANT_ID}
+              - name: AZURE_FEDERATED_TOKEN_FILE
+                value: /var/run/secrets/azure/tokens/azure-identity-token
+              - name: AZURE_AUTHORITY_HOST
+                value: https://login.microsoftonline.com/
+            insecure: true
+            labels:
+              azure.workload.identity/use: "true"
+            volumeMounts:
+              - mountPath: /var/run/secrets/azure/tokens
+                name: azure-identity-token
+                readOnly: true
+            volumes:
+              - name: azure-identity-token
+                projected:
+                  sources:
+                    - serviceAccountToken:
+                        audience: api://AzureADTokenExchange
+                        expirationSeconds: 3600
+                        path: azure-identity-token
+        EOF
+      - |
+        set -euo pipefail
+        for resource in \
+          serviceaccount/{{.ARGOCD_NAME}}-argocd-server \
+          deployment/{{.ARGOCD_NAME}}-server \
+          deployment/{{.ARGOCD_NAME}}-repo-server \
+          statefulset/{{.ARGOCD_NAME}}-application-controller; do
+          for attempt in $(seq 1 60); do
+            if kubectl -n argocd get "$resource" >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "Timed out waiting for $resource to be created" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+        done
+        eval "$(task e2e:infra-output)"
+        kubectl -n argocd annotate serviceaccount/{{.ARGOCD_NAME}}-argocd-server \
+          azure.workload.identity/client-id="${ARGOCD_APP_CLIENT_ID}" \
+          --overwrite
+      - kubectl rollout status deployment/{{.ARGOCD_NAME}}-server -n argocd --timeout=10m
+      - kubectl rollout status deployment/{{.ARGOCD_NAME}}-repo-server -n argocd --timeout=10m
+      - kubectl rollout status statefulset/{{.ARGOCD_NAME}}-application-controller -n argocd --timeout=10m
+      - |
+        set -euo pipefail
+        kubectl -n argocd patch configmap argocd-rbac-cm --type merge -p '{"data":{"scopes":"[groups]"}}'
+        kubectl rollout restart deployment/{{.ARGOCD_NAME}}-server -n argocd
+        kubectl rollout status deployment/{{.ARGOCD_NAME}}-server -n argocd --timeout=5m
+      - |
+        set -euo pipefail
+
+        password="$(kubectl -n argocd get secret {{.ARGOCD_NAME}}-cluster -o jsonpath='{.data.admin\.password}' | base64 -d)"
+        proxy_log="$(mktemp)"
+        proxy_pid=""
+        trap 'kill "$proxy_pid" 2>/dev/null || true; rm -f "$proxy_log"' EXIT
+
+        argocd_api_port=""
+        for candidate_port in $(seq 18080 18120); do
+          : >"$proxy_log"
+          kubectl proxy --port="${candidate_port}" >"$proxy_log" 2>&1 &
+          proxy_pid="$!"
+
+          for attempt in $(seq 1 30); do
+            if grep -q 'Starting to serve on' "$proxy_log"; then
+              argocd_api_port="$candidate_port"
+              break 2
+            fi
+            if ! kill -0 "$proxy_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "$argocd_api_port" ]; then
+            kill "$proxy_pid" 2>/dev/null || true
+            proxy_pid=""
+          fi
+        done
+
+        if [ -z "$argocd_api_port" ]; then
+          echo "Timed out waiting for Kubernetes API proxy" >&2
+          cat "$proxy_log" >&2
+          exit 1
+        fi
+
+        argocd_api_url="http://127.0.0.1:${argocd_api_port}/api/v1/namespaces/argocd/services/http:{{.ARGOCD_NAME}}-server:80/proxy"
+
+        for attempt in $(seq 1 60); do
+          token="$(curl -fsS \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg username admin --arg password "$password" '{username: $username, password: $password}')" \
+            "${argocd_api_url}/api/v1/session" 2>/dev/null | jq -r '.token // empty' || true)"
+          if [ -n "$token" ]; then
+            exit 0
+          fi
+
+          if [ "$attempt" -eq 60 ]; then
+            echo "Timed out waiting for Argo CD API" >&2
+            cat "$proxy_log" >&2
+            exit 1
+          fi
+          sleep 5
+        done
+
   e2e:build-image:
     desc: Build controller image as OCI tarball for e2e.
     cmds:
@@ -489,6 +687,10 @@ tasks:
       - |
         set -euo pipefail
         eval "$(task e2e:infra-output)"
+        argocd_instances="$(jq -cn \
+          --arg sp "${ARGOCD_AZURE_SERVICE_PRINCIPALS}" \
+          --arg role "${ARGOCD_AZURE_APP_ROLE_ID}" \
+          '[{name: "e2e", resource: {namespace: "argocd", name: "e2e-argocd"}, rbacConfigMap: {name: "argocd-rbac-cm"}, appProjects: {enabled: true}, azure: {servicePrincipals: $sp, appRoleId: $role}}]')"
         helm upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner \
           --namespace azure-k8s-role-assigner \
           --create-namespace \
@@ -499,7 +701,9 @@ tasks:
           --set-literal azure.servicePrincipals="${AZURE_SERVICE_PRINCIPALS}" \
           --set-string azure.tenantId="${AZURE_TENANT_ID}" \
           --set-string azure.clientId="${AZURE_CLIENT_ID}" \
-          --set-string azure.appRoleId="${AZURE_APP_ROLE_ID}"
+          --set-string azure.appRoleId="${AZURE_APP_ROLE_ID}" \
+          --set-string argocd.enabled=true \
+          --set-json "argocd.instances=${argocd_instances}"
       - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
 
   e2e:create-rbac:
@@ -518,6 +722,41 @@ tasks:
           --clusterrole=view \
           --group="${E2E_GROUP_RB_ID}" \
           --dry-run=client -o yaml | kubectl apply -f -
+
+  e2e:create-argocd-rbac:
+    desc: Create Argo CD RBAC test data.
+    vars:
+      ARGOCD_NAME: e2e-argocd
+      ARGOCD_PROJECT: e2e-argocd-groups
+    cmds:
+      - |
+        set -euo pipefail
+        eval "$(task e2e:infra-output)"
+
+        kubectl -n argocd patch configmap argocd-rbac-cm --type merge -p "$(jq -n \
+          --arg group "${E2E_GROUP_ARGOCD_CONFIGMAP_ID}" \
+          '{data: {"policy.csv": ("g, " + $group + ", role:admin\n"), scopes: "[groups]"}}')"
+
+        kubectl apply -f - <<EOF
+        apiVersion: argoproj.io/v1alpha1
+        kind: AppProject
+        metadata:
+          name: {{.ARGOCD_PROJECT}}
+          namespace: argocd
+        spec:
+          sourceRepos:
+            - '*'
+          destinations:
+            - server: '*'
+              namespace: '*'
+          roles:
+            - name: e2e
+              groups:
+                - ${E2E_GROUP_ARGOCD_APPPROJECT_ID}
+              policies:
+                - p, proj:{{.ARGOCD_PROJECT}}:e2e, applications, get, {{.ARGOCD_PROJECT}}/*, allow
+        EOF
+        kubectl -n argocd get appproject "{{.ARGOCD_PROJECT}}" -o yaml >/dev/null
 
   e2e:verify:
     desc: Verify bound groups appear in Entra token via ROPC user flow.
@@ -729,6 +968,168 @@ tasks:
           sleep {{.SLEEP_SECONDS}}
         done
 
+  e2e:verify-argocd:
+    desc: Verify Argo CD RBAC groups appear in the Argo CD Entra token.
+    preconditions:
+      - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
+        msg: "E2E_TEST_USER_UPN must be set"
+      - sh: '[ -n "{{.E2E_TEST_USER_PASSWORD}}" ] || [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]'
+        msg: "E2E_TEST_USER_PASSWORD must be set, or run task e2e:download-user-password"
+      - sh: '[ -n "{{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}}" ]'
+        msg: "TEST_GROUP_ARGOCD_CONFIGMAP_ID must be set"
+      - sh: '[ -n "{{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}" ]'
+        msg: "TEST_GROUP_ARGOCD_APPPROJECT_ID must be set"
+    vars:
+      MAX_ATTEMPTS: '{{.MAX_ATTEMPTS | default "30"}}'
+      SLEEP_SECONDS: '{{.SLEEP_SECONDS | default "10"}}'
+      ARGOCD_NAME: e2e-argocd
+    cmds:
+      - |
+        set -euo pipefail
+        eval "$(task e2e:infra-output)"
+
+        E2E_PASSWORD="{{.E2E_TEST_USER_PASSWORD}}"
+        if [ -z "$E2E_PASSWORD" ] && [ -f "{{.E2E_TEST_USER_PASSWORD_FILE}}" ]; then
+          E2E_PASSWORD="$(cat "{{.E2E_TEST_USER_PASSWORD_FILE}}")"
+        fi
+
+        if [ -z "$E2E_PASSWORD" ]; then
+          echo "E2E test user password is empty"
+          exit 1
+        fi
+
+        echo "Waiting for Argo CD RBAC groups to appear in the Argo CD Entra token..."
+        port_forward_log="$(mktemp)"
+        port_forward_pid=""
+        trap 'kill "$port_forward_pid" 2>/dev/null || true; rm -f "$port_forward_log"' EXIT
+
+        argocd_api_port=""
+        for candidate_port in $(seq 18080 18120); do
+          : >"$port_forward_log"
+          kubectl -n argocd port-forward "service/{{.ARGOCD_NAME}}-server" "${candidate_port}:80" >"$port_forward_log" 2>&1 &
+          port_forward_pid="$!"
+
+          for attempt in $(seq 1 30); do
+            if grep -q 'Forwarding from' "$port_forward_log"; then
+              argocd_api_port="$candidate_port"
+              break 2
+            fi
+            if ! kill -0 "$port_forward_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "$argocd_api_port" ]; then
+            kill "$port_forward_pid" 2>/dev/null || true
+            port_forward_pid=""
+          fi
+        done
+
+        if [ -z "$argocd_api_port" ]; then
+          echo "Timed out waiting for Argo CD API port-forward" >&2
+          cat "$port_forward_log" >&2
+          exit 1
+        fi
+
+        argocd_api_url="http://127.0.0.1:${argocd_api_port}"
+
+        for attempt in $(seq 1 {{.MAX_ATTEMPTS}}); do
+          echo "Attempt ${attempt}/{{.MAX_ATTEMPTS}}"
+
+          TOKEN_JSON="$(curl -fsS \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "client_id=${ARGOCD_APP_CLIENT_ID}" \
+            --data-urlencode 'grant_type=password' \
+            --data-urlencode 'scope=openid profile email' \
+            --data-urlencode "username={{.E2E_TEST_USER_UPN}}" \
+            --data-urlencode "password=${E2E_PASSWORD}" \
+            "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" 2>&1)" || {
+            echo "Entra ROPC token request failed:"
+            echo "$TOKEN_JSON"
+            exit 1
+          }
+
+          ID_TOKEN="$(echo "$TOKEN_JSON" | jq -r '.id_token // empty')"
+
+          if [ -z "$ID_TOKEN" ]; then
+            echo "Unable to extract ID token from Entra response:"
+            echo "$TOKEN_JSON"
+            exit 1
+          fi
+
+          ID_TOKEN_PAYLOAD_B64="$(printf '%s' "$ID_TOKEN" | cut -d '.' -f2 | tr '_-' '/+')"
+          PADDED_ID_TOKEN_PAYLOAD_B64="$(printf '%s' "$ID_TOKEN_PAYLOAD_B64" | awk '{m=length($0)%4; if (m==2) printf "%s==",$0; else if (m==3) printf "%s=",$0; else if (m==1) printf "%s===",$0; else printf "%s",$0}')"
+          ID_TOKEN_PAYLOAD="$(printf '%s' "$PADDED_ID_TOKEN_PAYLOAD_B64" | openssl base64 -d -A 2>/dev/null || true)"
+
+          if [ -z "$ID_TOKEN_PAYLOAD" ]; then
+            echo "Failed to decode JWT payload from Argo CD ID token"
+            exit 1
+          fi
+
+          echo ""
+          echo "Argo CD ID token claims:"
+          echo "$ID_TOKEN_PAYLOAD" | jq '{iss, aud, sub, email, preferred_username, groups: (.groups // [])}'
+
+          USERINFO="$(curl -fsS \
+            -H "Authorization: Bearer ${ID_TOKEN}" \
+            "${argocd_api_url}/api/v1/session/userinfo" 2>&1 || true)"
+
+          if ! echo "$USERINFO" | jq . >/dev/null 2>&1; then
+            echo "WAIT: Argo CD userinfo request did not return JSON yet:"
+            echo "$USERINFO"
+            kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=10 || true
+            if [[ "$attempt" -eq {{.MAX_ATTEMPTS}} ]]; then
+              echo "Timed out waiting for Argo CD userinfo JSON."
+              cat "$port_forward_log" >&2
+              exit 1
+            fi
+            sleep {{.SLEEP_SECONDS}}
+            continue
+          fi
+
+          GROUPS="$(echo "$USERINFO" | jq -r '.groups // [] | .[]')"
+          GROUP_COUNT="$(echo "$USERINFO" | jq -r '.groups // [] | length')"
+
+          echo ""
+          echo "Argo CD userinfo response:"
+          echo "$USERINFO" | jq .
+          echo ""
+
+          configmap_group_present=false
+          appproject_group_present=false
+          if echo "$GROUPS" | grep -qx "{{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}}"; then
+            configmap_group_present=true
+          fi
+          if echo "$GROUPS" | grep -qx "{{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}"; then
+            appproject_group_present=true
+          fi
+
+          if [ "$GROUP_COUNT" -eq 2 ] && [ "$configmap_group_present" = true ] && [ "$appproject_group_present" = true ]; then
+            echo "PASS: Argo CD userinfo returned only ConfigMap group {{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}} and AppProject group {{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}"
+            exit 0
+          fi
+
+          echo "WAIT: Argo CD userinfo did not return exactly the assigned Argo CD groups yet"
+          if [ "$configmap_group_present" != true ]; then
+            echo "MISS: ConfigMap group {{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}} is not in userinfo yet"
+          fi
+          if [ "$appproject_group_present" != true ]; then
+            echo "MISS: AppProject group {{.TEST_GROUP_ARGOCD_APPPROJECT_ID}} is not in userinfo yet"
+          fi
+          if [ "$GROUP_COUNT" -ne 2 ]; then
+            echo "WAIT: Expected exactly 2 Argo CD groups, got ${GROUP_COUNT}"
+          fi
+          kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=10 || true
+          if [[ "$attempt" -eq {{.MAX_ATTEMPTS}} ]]; then
+            echo "Timed out waiting for exact Argo CD ConfigMap/AppProject group set from userinfo."
+            kubectl logs -n argocd deployment/{{.ARGOCD_NAME}}-server --tail=100 || true
+            cat "$port_forward_log" >&2
+            exit 1
+          fi
+          sleep {{.SLEEP_SECONDS}}
+        done
+
   e2e:cleanup:
     desc: Clean up e2e Kubernetes resources.
     cmds:
@@ -736,6 +1137,9 @@ tasks:
       - kubectl delete rolebinding test-rb-binding -n {{.E2E_NS}} --ignore-not-found
       - kubectl delete namespace {{.E2E_NS}} --ignore-not-found
       - helm uninstall azure-k8s-role-assigner --namespace azure-k8s-role-assigner --ignore-not-found
+      - kubectl delete argocd e2e-argocd -n argocd --ignore-not-found --timeout=5m
+      - kubectl delete namespace argocd --ignore-not-found --timeout=5m
+      - kubectl delete -k github.com/argoproj-labs/argocd-operator/config/default?ref={{.ARGOCD_OPERATOR_VERSION}} --ignore-not-found
 
   e2e:cluster-down:
     desc: Delete the kind e2e cluster.

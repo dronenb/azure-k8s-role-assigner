@@ -16,6 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// DesiredGroupBuilder returns the desired set of Microsoft Entra group object IDs.
+type DesiredGroupBuilder func(ctx context.Context) (map[string]struct{}, error)
+
 // AzureGroupManager is the subset of the Azure client used by the reconcilers.
 //
 // It exists as an interface so the reconcile logic can be unit-tested with a
@@ -49,8 +52,9 @@ type AzureGroupManager interface {
 // other is concurrently removing it.
 type StateReconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	AzureClient AzureGroupManager
+	Scheme               *runtime.Scheme
+	AzureClient          AzureGroupManager
+	BuildDesiredGroupIDs DesiredGroupBuilder
 
 	// mu serializes full-state convergence so the RoleBinding and
 	// ClusterRoleBinding reconcilers cannot interleave assign/remove operations.
@@ -75,7 +79,12 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	desired, err := r.buildDesiredGroupIDs(ctx)
+	buildDesired := r.BuildDesiredGroupIDs
+	if buildDesired == nil {
+		buildDesired = r.buildKubernetesDesiredGroupIDs
+	}
+
+	desired, err := buildDesired(ctx)
 	if err != nil {
 		return err
 	}
@@ -128,9 +137,7 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 //
 // Bindings that are being deleted (non-zero deletion timestamp) are ignored so
 // their groups do not keep an assignment alive during termination.
-func (r *StateReconciler) buildDesiredGroupIDs(ctx context.Context) (map[string]struct{}, error) {
-	logger := log.FromContext(ctx)
-
+func (r *StateReconciler) buildKubernetesDesiredGroupIDs(ctx context.Context) (map[string]struct{}, error) {
 	roleBindings := &rbacv1.RoleBindingList{}
 	if err := r.List(ctx, roleBindings); err != nil {
 		return nil, fmt.Errorf("failed to list rolebindings: %w", err)
@@ -162,9 +169,13 @@ func (r *StateReconciler) buildDesiredGroupIDs(ctx context.Context) (map[string]
 		}
 	}
 
-	// Resolve each candidate against Azure to its canonical object ID. Groups
-	// that cannot be resolved are skipped (logged) rather than aborting the
-	// whole reconcile.
+	return r.resolveCandidateGroupIDs(ctx, candidates)
+}
+
+// resolveCandidateGroupIDs resolves each candidate against Azure to its canonical object ID.
+// Groups that cannot be resolved are skipped rather than aborting the whole reconcile.
+func (r *StateReconciler) resolveCandidateGroupIDs(ctx context.Context, candidates map[string]struct{}) (map[string]struct{}, error) {
+	logger := log.FromContext(ctx)
 	desired := make(map[string]struct{}, len(candidates))
 	for groupID := range candidates {
 		group, err := r.AzureClient.GetGroupByID(ctx, groupID)

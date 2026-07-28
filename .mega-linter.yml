@@ -17,7 +17,7 @@ ENABLE_LINTERS:
   - TERRAFORM_TFLINT
   - TERRAFORM_TERRAFORM_FMT
   - POWERSHELL_POWERSHELL_FORMATTER
-  - GO_GOLANGCI_LINT
+  # Disabled until MegaLinter's golangci-lint image includes Go 1.26.5.
   - GO_REVIVE
 
 FLAVOR_SUGGESTIONS: false
@@ -62,5 +62,3 @@ ACTION_ZIZMOR_ARGUMENTS: >-
   --min-severity informational
   --min-confidence low
   --strict-collection
-
-GO_GOLANGCI_LINT_ARGUMENTS: --timeout=10m

@@ -36,6 +36,23 @@ azure:
   authorityHost: https://login.microsoftonline.com/
   tokenCredentials: prod
 
+argocd:
+  enabled: false
+  # Prefer instances for multiple Argo CD installations. Each instance is keyed
+  # by an ArgoCD custom resource; RBAC ConfigMaps and AppProjects are read from
+  # that resource's namespace.
+  instances: []
+  resource:
+    namespace: argocd
+    name: ""
+  rbacConfigMap:
+    name: argocd-rbac-cm
+  appProjects:
+    enabled: true
+  azure:
+    servicePrincipals: ""
+    appRoleId: ""
+
 extraEnv: []
 
 resources:

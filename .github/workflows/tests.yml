@@ -105,8 +105,8 @@ jobs:
 
       - name: Upload govulncheck SARIF to GitHub
         if: always() && hashFiles('govulncheck.sarif') != ''
-        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: govulncheck.sarif
 
@@ -191,6 +191,8 @@ jobs:
           OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
           TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
           TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+          TEST_GROUP_ARGOCD_CONFIGMAP_ID: ${{ vars.TEST_GROUP_ARGOCD_CONFIGMAP_ID }}
+          TEST_GROUP_ARGOCD_APPPROJECT_ID: ${{ vars.TEST_GROUP_ARGOCD_APPPROJECT_ID }}
           E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
         run: task e2e:infra-up
 
@@ -202,6 +204,9 @@ jobs:
       - name: Verify cluster
         run: kubectl cluster-info && kubectl get nodes -o wide
 
+      - name: Deploy Argo CD Operator
+        run: task e2e:argocd-up
+
       - name: Build and load e2e image
         run: |
           task e2e:build-image
@@ -212,6 +217,9 @@ jobs:
 
       - name: Create RBAC bindings
         run: task e2e:create-rbac
+
+      - name: Create Argo CD RBAC
+        run: task e2e:create-argocd-rbac
 
       - name: Install kubelogin
         # Check latest action: TAG=$(gh api repos/azure/use-kubelogin/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/use-kubelogin/git/ref/tags/$TAG --jq .object.sha); echo "azure/use-kubelogin@$SHA # $TAG"
@@ -241,6 +249,14 @@ jobs:
           TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
         run: task e2e:verify
 
+      - name: Verify Argo CD userinfo group claims
+        env:
+          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
+          E2E_TEST_USER_PASSWORD: ${{ env.E2E_TEST_USER_PASSWORD }}
+          TEST_GROUP_ARGOCD_CONFIGMAP_ID: ${{ vars.TEST_GROUP_ARGOCD_CONFIGMAP_ID }}
+          TEST_GROUP_ARGOCD_APPPROJECT_ID: ${{ vars.TEST_GROUP_ARGOCD_APPPROJECT_ID }}
+        run: task e2e:verify-argocd
+
       - name: Verify deletion removes group from token
         env:
           E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
@@ -265,5 +281,7 @@ jobs:
         if: always()
         env:
           OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
+          TEST_GROUP_ARGOCD_CONFIGMAP_ID: ${{ vars.TEST_GROUP_ARGOCD_CONFIGMAP_ID }}
+          TEST_GROUP_ARGOCD_APPPROJECT_ID: ${{ vars.TEST_GROUP_ARGOCD_APPPROJECT_ID }}
           E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
         run: task e2e:infra-down
