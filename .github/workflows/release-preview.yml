@@ -16,7 +16,7 @@ jobs:
     name: Release Preview
     if: contains(github.event.pull_request.labels.*.name, 'release-candidate')
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write # Create or update the release preview PR comment.
@@ -232,8 +232,8 @@ jobs:
 
       - name: Upload Clair SARIF to GitHub
         if: always() && steps.clair-sarif.outputs.upload == 'true'
-        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4.37.0"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: clair-results.sarif
 
