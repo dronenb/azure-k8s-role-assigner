@@ -1,3 +1,4 @@
+// Package azure wraps Microsoft Graph operations used by the controller.
 package azure
 
 import (
@@ -49,7 +50,7 @@ func NewClient(ctx context.Context) (*Client, error) {
 }
 
 // NewClientForTarget creates a new Azure AD client for a specific assignment target.
-func NewClientForTarget(ctx context.Context, servicePrincipals []string, appRoleID string) (*Client, error) {
+func NewClientForTarget(_ context.Context, servicePrincipals []string, appRoleID string) (*Client, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		appmetrics.AuthFailuresTotal.WithLabelValues("credential_init").Inc()

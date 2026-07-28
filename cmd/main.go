@@ -1,3 +1,4 @@
+// Package main starts the azure-k8s-role-assigner controller manager.
 package main
 
 import (
