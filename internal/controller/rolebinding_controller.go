@@ -1,3 +1,4 @@
+// Package controller contains Kubernetes reconcilers for Azure group assignments.
 package controller
 
 import (
