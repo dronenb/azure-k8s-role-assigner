@@ -193,15 +193,12 @@ jobs:
           echo "image-path=${image_path}" >> "${GITHUB_OUTPUT}"
           echo "Saved ${image_ref} to ${image_path}"
 
-      - name: Update Clair vulnerability DB
+      - name: Report missing Clair vulnerability DB
         if: hashFiles('matcher.db') == ''
-        # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
-        uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
-        with:
-          mode: update
-          db-file: matcher.db
+        run: echo "Skipping Clair scan because no cached vulnerability DB was restored"
 
       - name: Run Clair scan
+        if: hashFiles('matcher.db') != ''
         # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
         uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
         with:
