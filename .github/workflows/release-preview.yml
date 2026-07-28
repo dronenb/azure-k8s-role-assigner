@@ -219,8 +219,19 @@ jobs:
           name: clair-results
           path: clair-results.sarif
 
-      - name: Upload Clair SARIF to GitHub
+      - name: Check Clair SARIF upload eligibility
+        id: clair-sarif
         if: always() && hashFiles('clair-results.sarif') != ''
+        run: |
+          if jq -e 'any(.runs[]?; ((.results // []) | length) > 0)' clair-results.sarif > /dev/null; then
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Clair SARIF results to upload"
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Clair SARIF to GitHub
+        if: always() && steps.clair-sarif.outputs.upload == 'true'
         # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
         uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         with:
