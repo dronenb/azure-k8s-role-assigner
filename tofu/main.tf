@@ -76,7 +76,7 @@ data "http" "github_meta" {
 variable "github_repository" {
   description = "GitHub repository in org/repo format for federated credential subject"
   type        = string
-  default     = "dronenb/azure-k8s-role-assigner"
+  default     = "dronenb@13852784/azure-k8s-role-assigner@1159566157"
 }
 
 variable "subscription_id" {
