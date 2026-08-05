@@ -249,7 +249,7 @@ jobs:
           TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
         run: task e2e:verify
 
-      - name: Verify Argo CD userinfo group claims
+      - name: Verify Argo CD token group claims
         env:
           E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
           E2E_TEST_USER_PASSWORD: ${{ env.E2E_TEST_USER_PASSWORD }}
