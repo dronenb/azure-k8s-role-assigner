@@ -690,7 +690,10 @@ tasks:
         argocd_instances="$(jq -cn \
           --arg sp "${ARGOCD_AZURE_SERVICE_PRINCIPALS}" \
           --arg role "${ARGOCD_AZURE_APP_ROLE_ID}" \
-          '[{name: "e2e", resource: {namespace: "argocd", name: "e2e-argocd"}, rbacConfigMap: {name: "argocd-rbac-cm"}, appProjects: {enabled: true}, azure: {servicePrincipals: $sp, appRoleId: $role}}]')"
+          '[
+            {name: "e2e-primary", resource: {namespace: "argocd", name: "e2e-argocd"}, rbacConfigMap: {name: "argocd-rbac-cm"}, appProjects: {enabled: false}, azure: {servicePrincipals: $sp, appRoleId: $role}},
+            {name: "e2e-secondary", resource: {namespace: "argocd-shared"}, rbacConfigMap: {name: "argocd-rbac-cm"}, appProjects: {enabled: true}, azure: {servicePrincipals: $sp, appRoleId: $role}}
+          ]')"
         helm upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner \
           --namespace azure-k8s-role-assigner \
           --create-namespace \
@@ -724,7 +727,7 @@ tasks:
           --dry-run=client -o yaml | kubectl apply -f -
 
   e2e:create-argocd-rbac:
-    desc: Create Argo CD RBAC test data.
+    desc: Create Argo CD RBAC test data across two source namespaces sharing one Azure target.
     vars:
       ARGOCD_NAME: e2e-argocd
       ARGOCD_PROJECT: e2e-argocd-groups
@@ -732,6 +735,8 @@ tasks:
       - |
         set -euo pipefail
         eval "$(task e2e:infra-output)"
+
+        kubectl create namespace argocd-shared --dry-run=client -o yaml | kubectl apply -f -
 
         kubectl -n argocd patch configmap argocd-rbac-cm --type merge -p "$(jq -n \
           --arg group "${E2E_GROUP_ARGOCD_CONFIGMAP_ID}" \
@@ -742,7 +747,7 @@ tasks:
         kind: AppProject
         metadata:
           name: {{.ARGOCD_PROJECT}}
-          namespace: argocd
+          namespace: argocd-shared
         spec:
           sourceRepos:
             - '*'
@@ -756,7 +761,7 @@ tasks:
               policies:
                 - p, proj:{{.ARGOCD_PROJECT}}:e2e, applications, get, {{.ARGOCD_PROJECT}}/*, allow
         EOF
-        kubectl -n argocd get appproject "{{.ARGOCD_PROJECT}}" -o yaml >/dev/null
+        kubectl -n argocd-shared get appproject "{{.ARGOCD_PROJECT}}" -o yaml >/dev/null
 
   e2e:verify:
     desc: Verify bound groups appear in Entra token via ROPC user flow.
@@ -969,7 +974,7 @@ tasks:
         done
 
   e2e:verify-argocd:
-    desc: Verify Argo CD RBAC groups appear in the Argo CD Entra token.
+    desc: Verify Argo CD RBAC groups from shared-target source namespaces appear in the Argo CD Entra token.
     preconditions:
       - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
         msg: "E2E_TEST_USER_UPN must be set"
@@ -982,7 +987,6 @@ tasks:
     vars:
       MAX_ATTEMPTS: '{{.MAX_ATTEMPTS | default "30"}}'
       SLEEP_SECONDS: '{{.SLEEP_SECONDS | default "10"}}'
-      ARGOCD_NAME: e2e-argocd
     cmds:
       - |
         set -euo pipefail
@@ -998,42 +1002,7 @@ tasks:
           exit 1
         fi
 
-        echo "Waiting for Argo CD RBAC groups to appear in the Argo CD Entra token..."
-        port_forward_log="$(mktemp)"
-        port_forward_pid=""
-        trap 'kill "$port_forward_pid" 2>/dev/null || true; rm -f "$port_forward_log"' EXIT
-
-        argocd_api_port=""
-        for candidate_port in $(seq 18080 18120); do
-          : >"$port_forward_log"
-          kubectl -n argocd port-forward "service/{{.ARGOCD_NAME}}-server" "${candidate_port}:80" >"$port_forward_log" 2>&1 &
-          port_forward_pid="$!"
-
-          for attempt in $(seq 1 30); do
-            if grep -q 'Forwarding from' "$port_forward_log"; then
-              argocd_api_port="$candidate_port"
-              break 2
-            fi
-            if ! kill -0 "$port_forward_pid" 2>/dev/null; then
-              break
-            fi
-            sleep 1
-          done
-
-          if [ -z "$argocd_api_port" ]; then
-            kill "$port_forward_pid" 2>/dev/null || true
-            port_forward_pid=""
-          fi
-        done
-
-        if [ -z "$argocd_api_port" ]; then
-          echo "Timed out waiting for Argo CD API port-forward" >&2
-          cat "$port_forward_log" >&2
-          exit 1
-        fi
-
-        argocd_api_url="http://127.0.0.1:${argocd_api_port}"
-
+        echo "Waiting for Argo CD RBAC groups from both shared-target sources to appear in the Argo CD Entra token..."
         for attempt in $(seq 1 {{.MAX_ATTEMPTS}}); do
           echo "Attempt ${attempt}/{{.MAX_ATTEMPTS}}"
 
@@ -1071,30 +1040,8 @@ tasks:
           echo "Argo CD ID token claims:"
           echo "$ID_TOKEN_PAYLOAD" | jq '{iss, aud, sub, email, preferred_username, groups: (.groups // [])}'
 
-          USERINFO="$(curl -fsS \
-            -H "Authorization: Bearer ${ID_TOKEN}" \
-            "${argocd_api_url}/api/v1/session/userinfo" 2>&1 || true)"
-
-          if ! echo "$USERINFO" | jq . >/dev/null 2>&1; then
-            echo "WAIT: Argo CD userinfo request did not return JSON yet:"
-            echo "$USERINFO"
-            kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=10 || true
-            if [[ "$attempt" -eq {{.MAX_ATTEMPTS}} ]]; then
-              echo "Timed out waiting for Argo CD userinfo JSON."
-              cat "$port_forward_log" >&2
-              exit 1
-            fi
-            sleep {{.SLEEP_SECONDS}}
-            continue
-          fi
-
-          GROUPS="$(echo "$USERINFO" | jq -r '.groups // [] | .[]')"
-          GROUP_COUNT="$(echo "$USERINFO" | jq -r '.groups // [] | length')"
-
-          echo ""
-          echo "Argo CD userinfo response:"
-          echo "$USERINFO" | jq .
-          echo ""
+          GROUPS="$(echo "$ID_TOKEN_PAYLOAD" | jq -r '.groups // [] | .[]')"
+          GROUP_COUNT="$(echo "$ID_TOKEN_PAYLOAD" | jq -r '.groups // [] | length')"
 
           configmap_group_present=false
           appproject_group_present=false
@@ -1106,25 +1053,23 @@ tasks:
           fi
 
           if [ "$GROUP_COUNT" -eq 2 ] && [ "$configmap_group_present" = true ] && [ "$appproject_group_present" = true ]; then
-            echo "PASS: Argo CD userinfo returned only ConfigMap group {{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}} and AppProject group {{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}"
+            echo "PASS: Argo CD ID token returned only primary ConfigMap group {{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}} and secondary AppProject group {{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}"
             exit 0
           fi
 
-          echo "WAIT: Argo CD userinfo did not return exactly the assigned Argo CD groups yet"
+          echo "WAIT: Argo CD ID token did not return exactly the assigned shared-target Argo CD groups yet"
           if [ "$configmap_group_present" != true ]; then
-            echo "MISS: ConfigMap group {{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}} is not in userinfo yet"
+            echo "MISS: ConfigMap group {{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}} is not in the ID token yet"
           fi
           if [ "$appproject_group_present" != true ]; then
-            echo "MISS: AppProject group {{.TEST_GROUP_ARGOCD_APPPROJECT_ID}} is not in userinfo yet"
+            echo "MISS: AppProject group {{.TEST_GROUP_ARGOCD_APPPROJECT_ID}} is not in the ID token yet"
           fi
           if [ "$GROUP_COUNT" -ne 2 ]; then
             echo "WAIT: Expected exactly 2 Argo CD groups, got ${GROUP_COUNT}"
           fi
           kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=10 || true
           if [[ "$attempt" -eq {{.MAX_ATTEMPTS}} ]]; then
-            echo "Timed out waiting for exact Argo CD ConfigMap/AppProject group set from userinfo."
-            kubectl logs -n argocd deployment/{{.ARGOCD_NAME}}-server --tail=100 || true
-            cat "$port_forward_log" >&2
+            echo "Timed out waiting for exact shared-target Argo CD ConfigMap/AppProject group set from ID token."
             exit 1
           fi
           sleep {{.SLEEP_SECONDS}}
@@ -1138,6 +1083,7 @@ tasks:
       - kubectl delete namespace {{.E2E_NS}} --ignore-not-found
       - helm uninstall azure-k8s-role-assigner --namespace azure-k8s-role-assigner --ignore-not-found
       - kubectl delete argocd e2e-argocd -n argocd --ignore-not-found --timeout=5m
+      - kubectl delete namespace argocd-shared --ignore-not-found --timeout=5m
       - kubectl delete namespace argocd --ignore-not-found --timeout=5m
       - kubectl delete -k github.com/argoproj-labs/argocd-operator/config/default?ref={{.ARGOCD_OPERATOR_VERSION}} --ignore-not-found
 
