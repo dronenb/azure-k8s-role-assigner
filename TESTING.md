@@ -272,9 +272,11 @@ OpenTofu, Taskfile, or workflow files. It has two jobs:
 4. Provisions per-run Azure resources
 5. Builds, loads, deploys
 6. Verifies bound groups appear in the token (`task e2e:verify`)
-7. Verifies deleting a binding removes its group from the token, while a
+7. Verifies two Argo CD source namespaces sharing one Azure target converge to
+   one union of Argo CD groups (`task e2e:verify-argocd`)
+8. Verifies deleting a binding removes its group from the token, while a
    still-bound group remains (`task e2e:verify-deletion`)
-8. Always cleans up with `task e2e:infra-down`
+9. Always cleans up with `task e2e:infra-down`
 
 No secrets stored in GitHub.
 

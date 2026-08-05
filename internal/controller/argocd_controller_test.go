@@ -113,6 +113,47 @@ func TestArgoCDReconcile_UsesConfiguredArgoCDResourceNamespace(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{groupA: {}, groupB: {}}, azm.assignedSet())
 }
 
+func TestArgoCDReconcile_UnionsMultipleSourcesForSharedTarget(t *testing.T) {
+	azm := newFakeAzureManager(groupA, groupB, groupC)
+	scheme := testScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		argocdResource("team-a", "argocd-a"),
+		argocdRBACConfigMapInNamespace("team-a", "g, "+groupA+", role:admin"),
+		appProjectInNamespace("team-a", "project-a", []string{groupB}),
+		argocdResource("team-b", "argocd-b"),
+		argocdRBACConfigMapInNamespace("team-b", "g, "+groupC+", role:admin"),
+	).Build()
+	argocdReconciler := &ArgoCDReconciler{
+		Sources: []ArgoCDSource{
+			{
+				ResourceNamespace:  "team-a",
+				ResourceName:       "argocd-a",
+				ConfigMapName:      argocdRBACName,
+				AppProjectsEnabled: true,
+			},
+			{
+				ResourceNamespace:  "team-b",
+				ResourceName:       "argocd-b",
+				ConfigMapName:      argocdRBACName,
+				AppProjectsEnabled: true,
+			},
+		},
+	}
+	state := &StateReconciler{
+		Client:               c,
+		Scheme:               scheme,
+		AzureClient:          azm,
+		BuildDesiredGroupIDs: argocdReconciler.BuildArgoCDDesiredGroupIDs,
+	}
+	argocdReconciler.StateReconciler = state
+
+	require.NoError(t, state.reconcileDesiredState(context.Background()))
+
+	assert.ElementsMatch(t, []string{groupA, groupB, groupC}, azm.assignCalls)
+	assert.Empty(t, azm.removeCalls, "groups from another source sharing the target must not be pruned")
+	assert.Equal(t, map[string]struct{}{groupA: {}, groupB: {}, groupC: {}}, azm.assignedSet())
+}
+
 func TestArgoCDReconcile_AppProjectSourceNamespacesDoNotChangeProjectNamespace(t *testing.T) {
 	azm := newFakeAzureManager()
 	scheme := testScheme()

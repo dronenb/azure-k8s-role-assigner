@@ -38,9 +38,8 @@ azure:
 
 argocd:
   enabled: false
-  # Prefer instances for multiple Argo CD installations. Each instance is keyed
-  # by an ArgoCD custom resource; RBAC ConfigMaps and AppProjects are read from
-  # that resource's namespace.
+  # Prefer instances for multiple Argo CD installations. Instances that share
+  # the same Azure target are reconciled as one union of source namespaces.
   instances: []
   resource:
     namespace: argocd

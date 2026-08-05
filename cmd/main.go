@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -108,20 +109,17 @@ func main() {
 			os.Exit(1)
 		}
 
-		for _, instance := range argocdInstances {
-			argocdAzureClient, err := newArgoCDAzureClient(ctx, instance.Azure.ServicePrincipals, instance.Azure.AppRoleID)
+		for _, target := range argoCDTargets(argocdInstances) {
+			argocdAzureClient, err := newArgoCDAzureClient(ctx, target.ServicePrincipals, target.AppRoleID)
 			if err != nil {
-				setupLog.Error(err, "unable to create Argo CD Azure client", "instance", instance.Name)
+				setupLog.Error(err, "unable to create Argo CD Azure client", "target", target.Name)
 				os.Exit(1)
 			}
 
 			argocdReconciler := &controller.ArgoCDReconciler{
-				Name:               instance.Name,
-				ResourceNamespace:  instance.Resource.Namespace,
-				ResourceName:       instance.Resource.Name,
-				ConfigMapName:      instance.RBACConfigMap.Name,
-				AppProjectsEnabled: instance.AppProjects.Enabled,
-				ResyncPeriod:       resyncPeriod,
+				Name:         target.Name,
+				Sources:      target.Sources,
+				ResyncPeriod: resyncPeriod,
 			}
 			argocdStateReconciler := &controller.StateReconciler{
 				Client:               mgr.GetClient(),
@@ -132,10 +130,10 @@ func main() {
 			argocdReconciler.StateReconciler = argocdStateReconciler
 
 			if err = argocdReconciler.SetupWithManager(mgr); err != nil {
-				setupLog.Error(err, "unable to create controller", "controller", "ArgoCD", "instance", instance.Name)
+				setupLog.Error(err, "unable to create controller", "controller", "ArgoCD", "target", target.Name)
 				os.Exit(1)
 			}
-			setupLog.Info("Argo CD reconciliation enabled", "instance", instance.Name, "namespace", instance.Resource.Namespace, "argocd", instance.Resource.Name)
+			setupLog.Info("Argo CD reconciliation enabled", "target", target.Name, "sources", len(target.Sources))
 		}
 	}
 
@@ -183,6 +181,13 @@ type argoCDAzureConfig struct {
 	AppRoleID         string `json:"appRoleId"`
 }
 
+type argoCDTargetConfig struct {
+	Name              string
+	ServicePrincipals string
+	AppRoleID         string
+	Sources           []controller.ArgoCDSource
+}
+
 func argoCDInstancesFromEnv() ([]argoCDInstanceConfig, error) {
 	instancesJSON := strings.TrimSpace(os.Getenv("ARGOCD_INSTANCES"))
 	if instancesJSON == "" {
@@ -225,9 +230,6 @@ func argoCDInstancesFromEnv() ([]argoCDInstanceConfig, error) {
 		if instance.Resource.Namespace == "" {
 			return nil, fmt.Errorf("Argo CD instance %q resource.namespace must be set", instance.Name)
 		}
-		if instance.Resource.Name == "" {
-			return nil, fmt.Errorf("Argo CD instance %q resource.name must be set", instance.Name)
-		}
 		if instance.RBACConfigMap.Name == "" {
 			instance.RBACConfigMap.Name = "argocd-rbac-cm"
 		}
@@ -265,19 +267,67 @@ func (c *argoCDInstanceConfig) UnmarshalJSON(data []byte) error {
 }
 
 func newArgoCDAzureClient(ctx context.Context, servicePrincipalsEnv, appRoleID string) (*azure.Client, error) {
-	if servicePrincipalsEnv == "" {
+	servicePrincipals := parseServicePrincipals(servicePrincipalsEnv)
+	if len(servicePrincipals) == 0 {
 		return nil, fmt.Errorf("Argo CD servicePrincipals is required")
 	}
-	servicePrincipals := strings.Split(servicePrincipalsEnv, ",")
-	for i, sp := range servicePrincipals {
-		servicePrincipals[i] = strings.TrimSpace(sp)
-	}
 
+	appRoleID = strings.TrimSpace(appRoleID)
 	if appRoleID == "" {
 		return nil, fmt.Errorf("Argo CD appRoleId is required")
 	}
 
 	return azure.NewClientForTarget(ctx, servicePrincipals, appRoleID)
+}
+
+func argoCDTargets(instances []argoCDInstanceConfig) []argoCDTargetConfig {
+	targetsByKey := map[string]*argoCDTargetConfig{}
+	keys := []string{}
+	for _, instance := range instances {
+		servicePrincipals := strings.Join(parseServicePrincipals(instance.Azure.ServicePrincipals), ",")
+		appRoleID := strings.TrimSpace(instance.Azure.AppRoleID)
+		key := servicePrincipals + "|" + appRoleID
+		target, exists := targetsByKey[key]
+		if !exists {
+			target = &argoCDTargetConfig{
+				Name:              instance.Name,
+				ServicePrincipals: servicePrincipals,
+				AppRoleID:         appRoleID,
+			}
+			targetsByKey[key] = target
+			keys = append(keys, key)
+		}
+		target.Sources = append(target.Sources, controller.ArgoCDSource{
+			ResourceNamespace:  instance.Resource.Namespace,
+			ResourceName:       instance.Resource.Name,
+			ConfigMapName:      instance.RBACConfigMap.Name,
+			AppProjectsEnabled: instance.AppProjects.Enabled,
+		})
+	}
+
+	targets := make([]argoCDTargetConfig, 0, len(keys))
+	for _, key := range keys {
+		targets = append(targets, *targetsByKey[key])
+	}
+	return targets
+}
+
+func parseServicePrincipals(value string) []string {
+	seen := map[string]struct{}{}
+	servicePrincipals := []string{}
+	for _, servicePrincipal := range strings.Split(value, ",") {
+		servicePrincipal = strings.TrimSpace(servicePrincipal)
+		if servicePrincipal == "" {
+			continue
+		}
+		if _, exists := seen[servicePrincipal]; exists {
+			continue
+		}
+		seen[servicePrincipal] = struct{}{}
+		servicePrincipals = append(servicePrincipals, servicePrincipal)
+	}
+	sort.Strings(servicePrincipals)
+	return servicePrincipals
 }
 
 func envOrDefault(name, fallback string) string {

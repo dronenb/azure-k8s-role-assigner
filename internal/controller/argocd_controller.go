@@ -35,11 +35,21 @@ type ArgoCDReconciler struct {
 	*StateReconciler
 
 	Name               string
+	Sources            []ArgoCDSource
 	ResourceNamespace  string
 	ResourceName       string
 	ConfigMapName      string
 	AppProjectsEnabled bool
 	ResyncPeriod       time.Duration
+}
+
+// ArgoCDSource describes one Argo CD installation whose RBAC sources should be
+// reconciled into this controller's Azure target.
+type ArgoCDSource struct {
+	ResourceNamespace  string
+	ResourceName       string
+	ConfigMapName      string
+	AppProjectsEnabled bool
 }
 
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
@@ -67,27 +77,43 @@ func (r *ArgoCDReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	sources := r.sources()
 	cmPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		return obj.GetNamespace() == r.ResourceNamespace && obj.GetName() == r.ConfigMapName
+		for _, source := range sources {
+			if obj.GetNamespace() == source.ResourceNamespace && obj.GetName() == source.ConfigMapName {
+				return true
+			}
+		}
+		return false
 	})
 	appProjectPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		return obj.GetNamespace() == r.ResourceNamespace
+		for _, source := range sources {
+			if source.AppProjectsEnabled && obj.GetNamespace() == source.ResourceNamespace {
+				return true
+			}
+		}
+		return false
 	})
 	argoCDPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		return obj.GetNamespace() == r.ResourceNamespace && obj.GetName() == r.ResourceName
+		for _, source := range sources {
+			if source.ResourceName != "" && obj.GetNamespace() == source.ResourceNamespace && obj.GetName() == source.ResourceName {
+				return true
+			}
+		}
+		return false
 	})
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named(r.controllerName()).
 		For(&corev1.ConfigMap{}, builder.WithPredicates(cmPredicate))
 
-	if r.ResourceName != "" {
+	if hasArgoCDResourceSource(sources) {
 		argoCD := &unstructured.Unstructured{}
 		argoCD.SetGroupVersionKind(argoCDGVK)
 		b = b.Watches(argoCD, &handler.EnqueueRequestForObject{}, builder.WithPredicates(argoCDPredicate))
 	}
 
-	if r.AppProjectsEnabled {
+	if hasAppProjectSource(sources) {
 		if _, err := mgr.GetRESTMapper().RESTMapping(appProjectGVK.GroupKind(), appProjectGVK.Version); err != nil {
 			if !apierrutil.IsNoMatchError(err) {
 				return fmt.Errorf("failed to discover AppProject resource: %w", err)
@@ -111,35 +137,79 @@ func (r *ArgoCDReconciler) controllerName() string {
 	return "argocd-" + strings.NewReplacer("_", "-", ".", "-", "/", "-").Replace(strings.ToLower(name))
 }
 
+func (r *ArgoCDReconciler) sources() []ArgoCDSource {
+	if len(r.Sources) > 0 {
+		return r.Sources
+	}
+	return []ArgoCDSource{{
+		ResourceNamespace:  r.ResourceNamespace,
+		ResourceName:       r.ResourceName,
+		ConfigMapName:      r.ConfigMapName,
+		AppProjectsEnabled: r.AppProjectsEnabled,
+	}}
+}
+
+func hasArgoCDResourceSource(sources []ArgoCDSource) bool {
+	for _, source := range sources {
+		if source.ResourceName != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAppProjectSource(sources []ArgoCDSource) bool {
+	for _, source := range sources {
+		if source.AppProjectsEnabled {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildArgoCDDesiredGroupIDs returns the union of valid group IDs referenced by
 // argocd-rbac-cm policy.csv and AppProject role groups.
 func (r *ArgoCDReconciler) BuildArgoCDDesiredGroupIDs(ctx context.Context) (map[string]struct{}, error) {
+	desired := make(map[string]struct{})
+	for _, source := range r.sources() {
+		groups, err := r.buildArgoCDSourceDesiredGroupIDs(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+		for groupID := range groups {
+			desired[groupID] = struct{}{}
+		}
+	}
+	return desired, nil
+}
+
+func (r *ArgoCDReconciler) buildArgoCDSourceDesiredGroupIDs(ctx context.Context, source ArgoCDSource) (map[string]struct{}, error) {
 	logger := log.FromContext(ctx)
 	candidates := make(map[string]struct{})
-	if r.ResourceName != "" {
+	if source.ResourceName != "" {
 		argoCD := &unstructured.Unstructured{}
 		argoCD.SetGroupVersionKind(argoCDGVK)
-		argoCDKey := types.NamespacedName{Namespace: r.ResourceNamespace, Name: r.ResourceName}
+		argoCDKey := types.NamespacedName{Namespace: source.ResourceNamespace, Name: source.ResourceName}
 		if err := r.Get(ctx, argoCDKey, argoCD); err != nil {
 			if apierrors.IsNotFound(err) {
-				logger.Info("ArgoCD resource not found; desired Argo CD RBAC groups are empty", "namespace", r.ResourceNamespace, "name", r.ResourceName)
+				logger.Info("ArgoCD resource not found; desired Argo CD RBAC groups are empty", "namespace", source.ResourceNamespace, "name", source.ResourceName)
 				return r.resolveCandidateGroupIDs(ctx, candidates)
 			}
 			return nil, fmt.Errorf("failed to get ArgoCD resource %s: %w", argoCDKey.String(), err)
 		}
 		if !argoCD.GetDeletionTimestamp().IsZero() {
-			logger.Info("ArgoCD resource is deleting; desired Argo CD RBAC groups are empty", "namespace", r.ResourceNamespace, "name", r.ResourceName)
+			logger.Info("ArgoCD resource is deleting; desired Argo CD RBAC groups are empty", "namespace", source.ResourceNamespace, "name", source.ResourceName)
 			return r.resolveCandidateGroupIDs(ctx, candidates)
 		}
 	}
 
 	cm := &corev1.ConfigMap{}
-	cmKey := types.NamespacedName{Namespace: r.ResourceNamespace, Name: r.ConfigMapName}
+	cmKey := types.NamespacedName{Namespace: source.ResourceNamespace, Name: source.ConfigMapName}
 	if err := r.Get(ctx, cmKey, cm); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to get Argo CD RBAC ConfigMap %s: %w", cmKey.String(), err)
 		}
-		logger.Info("Argo CD RBAC ConfigMap not found; continuing with other sources", "namespace", r.ResourceNamespace, "name", r.ConfigMapName)
+		logger.Info("Argo CD RBAC ConfigMap not found; continuing with other sources", "namespace", source.ResourceNamespace, "name", source.ConfigMapName)
 	} else if cm.DeletionTimestamp.IsZero() {
 		for key, policy := range cm.Data {
 			if !isArgoCDPolicyCSVKey(key) {
@@ -151,8 +221,8 @@ func (r *ArgoCDReconciler) BuildArgoCDDesiredGroupIDs(ctx context.Context) (map[
 		}
 	}
 
-	if r.AppProjectsEnabled {
-		groups, err := r.buildAppProjectCandidateGroupIDs(ctx)
+	if source.AppProjectsEnabled {
+		groups, err := r.buildAppProjectCandidateGroupIDs(ctx, source.ResourceNamespace)
 		if err != nil {
 			return nil, err
 		}
@@ -164,11 +234,11 @@ func (r *ArgoCDReconciler) BuildArgoCDDesiredGroupIDs(ctx context.Context) (map[
 	return r.resolveCandidateGroupIDs(ctx, candidates)
 }
 
-func (r *ArgoCDReconciler) buildAppProjectCandidateGroupIDs(ctx context.Context) (map[string]struct{}, error) {
+func (r *ArgoCDReconciler) buildAppProjectCandidateGroupIDs(ctx context.Context, namespace string) (map[string]struct{}, error) {
 	appProjects := &unstructured.UnstructuredList{}
 	appProjects.SetGroupVersionKind(schema.GroupVersionKind{Group: appProjectGVK.Group, Version: appProjectGVK.Version, Kind: "AppProjectList"})
 
-	if err := r.List(ctx, appProjects, client.InNamespace(r.ResourceNamespace)); err != nil {
+	if err := r.List(ctx, appProjects, client.InNamespace(namespace)); err != nil {
 		if apierrutil.IsNoMatchError(err) {
 			return map[string]struct{}{}, nil
 		}
