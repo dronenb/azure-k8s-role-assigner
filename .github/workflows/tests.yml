@@ -195,5 +195,34 @@ jobs:
           SIGNING_KEY_SECRET_NAME: ${{ vars.SIGNING_KEY_SECRET_NAME }}
           TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
           TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+          TEST_GROUP_ARGOCD_CONFIGMAP_ID: ${{ vars.TEST_GROUP_ARGOCD_CONFIGMAP_ID }}
+          TEST_GROUP_ARGOCD_APPPROJECT_ID: ${{ vars.TEST_GROUP_ARGOCD_APPPROJECT_ID }}
           TF_VAR_name_suffix: gha-${{ github.run_id }}-${{ github.run_attempt }}
         run: task e2e
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          set +e
+          kubectl get all -A
+          kubectl get rolebinding,clusterrolebinding -A
+          kubectl logs -n azure-k8s-role-assigner deployment/azure-k8s-role-assigner --tail=200
+
+      - name: Cleanup Kubernetes resources
+        if: always()
+        run: task e2e:cleanup
+
+      - name: Delete kind cluster
+        if: always()
+        run: task e2e:cluster-down
+
+      - name: Destroy Entra resources
+        if: always()
+        env:
+          OIDC_ISSUER_URL: ${{ vars.OIDC_ISSUER_URL }}
+          E2E_TEST_USER_UPN: ${{ vars.E2E_TEST_USER_UPN }}
+          TEST_GROUP_CRB_ID: ${{ vars.TEST_GROUP_CRB_ID }}
+          TEST_GROUP_RB_ID: ${{ vars.TEST_GROUP_RB_ID }}
+          TEST_GROUP_ARGOCD_CONFIGMAP_ID: ${{ vars.TEST_GROUP_ARGOCD_CONFIGMAP_ID }}
+          TEST_GROUP_ARGOCD_APPPROJECT_ID: ${{ vars.TEST_GROUP_ARGOCD_APPPROJECT_ID }}
+        run: task e2e:infra-down
