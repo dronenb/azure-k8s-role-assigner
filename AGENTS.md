@@ -64,6 +64,7 @@ Guidance for AI coding agents working in this repository.
 ## E2E And OpenTofu Notes
 
 - E2E tests use a real kind cluster and real Azure Entra ID resources with Workload Identity Federation.
+- Before running local `task e2e`, follow `TESTING.md` to export the required static values. Maintainers can read them from GitHub repo variables or `tofu/` outputs when the static backend is initialized. Do not run e2e with empty `OIDC_ISSUER_URL`, `TEST_GROUP_CRB_ID`, `TEST_GROUP_RB_ID`, or `E2E_TEST_USER_UPN`.
 - A known destroy failure pattern is an AzureAD/OpenTofu 404 on `azuread_application_identifier_uri.cluster_api`.
 - Retrying full `tofu destroy` helps because the next run refreshes state and sees missing resources.
 - `Taskfile.yml` `e2e:infra-down` retries `tofu destroy` up to three times with 20s/40s backoff.
