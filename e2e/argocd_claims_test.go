@@ -1,3 +1,4 @@
+//revive:disable:dot-imports
 package e2e_test
 
 import (
@@ -21,7 +22,7 @@ var appProjectGVK = schema.GroupVersionKind{
 var _ = Describe("End-to-end Argo CD role assignment", Ordered, func() {
 	var cfg e2eConfig
 
-	BeforeAll(func(ctx SpecContext) {
+	BeforeAll(func(_ SpecContext) {
 		// ArgoCD install + RBAC is provisioned by the `task e2e` dependency chain
 		// (e2e:argocd-up, e2e:create-argocd-rbac). This spec verifies the results
 		// entirely through Go-native client calls.

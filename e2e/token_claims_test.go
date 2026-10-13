@@ -1,3 +1,4 @@
+//revive:disable:dot-imports
 package e2e_test
 
 import (
@@ -12,7 +13,7 @@ import (
 var _ = Describe("End-to-end role assignment", Ordered, func() {
 	var cfg e2eConfig
 
-	BeforeAll(func(ctx SpecContext) {
+	BeforeAll(func(_ SpecContext) {
 		// Infrastructure (kind, tofu, deploy, RBAC, ArgoCD) is provisioned by the
 		// `task e2e` dependency chain, not by the Go suite. This spec only loads
 		// configuration and validates the running cluster, following the
