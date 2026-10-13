@@ -1,3 +1,4 @@
+// Package azure wraps Microsoft Graph operations used by the controller.
 package azure
 
 import (
@@ -45,7 +46,11 @@ func NewClient(ctx context.Context) (*Client, error) {
 		return nil, fmt.Errorf("AZURE_APP_ROLE_ID environment variable not set")
 	}
 
-	// Create credential
+	return NewClientForTarget(ctx, servicePrincipals, appRoleID)
+}
+
+// NewClientForTarget creates a new Azure AD client for a specific assignment target.
+func NewClientForTarget(_ context.Context, servicePrincipals []string, appRoleID string) (*Client, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		appmetrics.AuthFailuresTotal.WithLabelValues("credential_init").Inc()

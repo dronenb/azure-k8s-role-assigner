@@ -30,7 +30,7 @@ az ad user create \
   --force-change-password-next-sign-in false
 ```
 
-**Create two test groups and add the user to them:**
+**Create four test groups and add the user to them:**
 
 ```bash
 az ad group create --display-name "my-test-crb" --mail-nickname "my-test-crb"
@@ -39,10 +39,18 @@ TEST_GROUP_CRB_ID="<copy group object ID>"
 az ad group create --display-name "my-test-rb" --mail-nickname "my-test-rb"
 TEST_GROUP_RB_ID="<copy group object ID>"
 
+az ad group create --display-name "my-test-argocd-configmap" --mail-nickname "my-test-argocd-configmap"
+TEST_GROUP_ARGOCD_CONFIGMAP_ID="<copy group object ID>"
+
+az ad group create --display-name "my-test-argocd-appproject" --mail-nickname "my-test-argocd-appproject"
+TEST_GROUP_ARGOCD_APPPROJECT_ID="<copy group object ID>"
+
 TEST_USER_OBJECT_ID="$(az ad user show --id "$TEST_USER_UPN" --query id -o tsv)"
 
 az ad group member add --group "$TEST_GROUP_CRB_ID" --member-id "$TEST_USER_OBJECT_ID"
 az ad group member add --group "$TEST_GROUP_RB_ID" --member-id "$TEST_USER_OBJECT_ID"
+az ad group member add --group "$TEST_GROUP_ARGOCD_CONFIGMAP_ID" --member-id "$TEST_USER_OBJECT_ID"
+az ad group member add --group "$TEST_GROUP_ARGOCD_APPPROJECT_ID" --member-id "$TEST_USER_OBJECT_ID"
 ```
 
 The cluster authentication app used as the token audience is created dynamically by `e2e/tofu/`; token acquisition for verification uses the static user via ROPC.
@@ -328,7 +336,7 @@ No secrets stored in GitHub.
 ### Workload Identity Federation
 
 - **No controller client secrets** — the controller authenticates with projected service account tokens
-- **Fresh verification tokens** — kubelogin cache is cleared between attempts
+- **Fresh verification tokens** — each ROPC request acquires a new token directly from Entra, independent of any local cache
 - **Automatic cleanup** — `task e2e:infra-down` destroys all per-run resources
 
 ## Notes

@@ -15,7 +15,7 @@ This directory contains the **one-time provisioned** infrastructure for CI/CD an
 - Graph API role assignments: GHA SP gets `Application.ReadWrite.OwnedBy`, `User.Read.All`, and `DelegatedPermissionGrant.ReadWrite.All` for per-run e2e provisioning.
 - Static e2e test user: User principal used by e2e verification via ROPC.
 - Named locations for GitHub Actions runner IP ranges. The Conditional Access policy that would restrict the e2e test user to those ranges is present in code but currently commented out.
-- Two Entra security groups used by RoleBinding/ClusterRoleBinding tests, plus filler groups that push the static test user over the 200-group token overage threshold.
+- Four Entra security groups used by RoleBinding, ClusterRoleBinding, Argo CD ConfigMap, and Argo CD AppProject tests, plus filler groups that push the static test user over the 200-group token overage threshold.
 - State backend storage account + container: Remote OpenTofu state storage (for migration from local state).
 - GitHub repo variables: Automatically set via `gh variable set` on apply.
 
@@ -32,12 +32,13 @@ This directory contains the **one-time provisioned** infrastructure for CI/CD an
 ## Usage
 
 ```bash
-cd tofu/
-tofu init
-tofu apply \
+task tofu:init
+task tofu:apply -- \
   -var="billing_scope_id=<your-billing-scope-id>" \
   -var="subscription_id=$(az account show --query id -o tsv)"
 ```
+
+The `task tofu:plan`, `task tofu:apply`, and `task tofu:destroy` wrappers use `-parallelism=25` by default because the static stack creates hundreds of independent Entra groups. Override with `TOFU_BASE_PARALLELISM=10` if Microsoft Graph throttles, or a higher value if your tenant reliably tolerates it.
 
 On first apply, a dedicated subscription is created and all resources are provisioned within it. GitHub repository variables are set by the bootstrap script after apply.
 
@@ -76,12 +77,12 @@ BILLING_SCOPE=$(az billing invoice section list --account-name "$BILLING_ACCOUNT
 cat > terraform.tfvars <<EOF
 billing_scope_id = "$BILLING_SCOPE"
 EOF
-tofu init && \
+task tofu:init && \
   TENANT_ID=$(az account show --query tenantId -o tsv) && \
-  tofu apply -target=azurerm_subscription.ci \
+  tofu apply -parallelism=25 -target=azurerm_subscription.ci \
     -var="subscription_id=$(az account show --query id -o tsv)" && \
   az logout && az login --tenant "$TENANT_ID" && \
-  tofu apply -var="subscription_id=$(tofu output -raw subscription_id)" && \
+  task tofu:apply -- -var="subscription_id=$(tofu output -raw subscription_id)" && \
   echo "subscription_id = \"$(tofu output -raw subscription_id)\"" >> terraform.tfvars
 ```
 
@@ -98,6 +99,8 @@ tofu init && \
 - `storage_account_name`: Storage account name.
 - `test_group_crb_id`: Object ID of the ClusterRoleBinding test group.
 - `test_group_rb_id`: Object ID of the RoleBinding test group.
+- `test_group_argocd_configmap_id`: Object ID of the Argo CD ConfigMap test group.
+- `test_group_argocd_appproject_id`: Object ID of the Argo CD AppProject test group.
 - `e2e_test_user_object_id`: Object ID of the static e2e test user.
 - `e2e_test_user_upn`: UPN of the static e2e test user.
 - `github_actions_named_location_id`: Named location IDs containing GitHub Actions runner IP CIDRs.
@@ -111,6 +114,7 @@ The static stack manages named locations for GitHub Actions hosted runner IP ran
 
 - A named location is built from `https://api.github.com/meta` runner IP ranges.
 - Large CIDR lists are split across multiple named locations to stay within policy size limits.
+- Existing named-location IP ranges are ignored by default during updates to avoid large recurring churn and Graph throttling as GitHub changes its published runner IPs.
 - The Conditional Access policy that would target the static e2e test user and block non-GitHub source IPs is currently commented out in `main.tf`.
 
 If you enable that policy, it keeps ROPC usable for CI while preventing general use from non-GitHub source IPs.

@@ -1,3 +1,5 @@
+// Package metrics defines Prometheus collectors for controller reconciliation
+// and Microsoft Graph calls.
 package metrics
 
 import (
@@ -13,6 +15,7 @@ import (
 const namespace = "azure_k8s_role_assigner"
 
 var (
+	// ReconcileTotal counts reconciliation attempts by controller and result.
 	ReconcileTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -22,6 +25,7 @@ var (
 		[]string{"controller", "result"},
 	)
 
+	// ReconcileDuration records reconciliation duration by controller.
 	ReconcileDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -32,6 +36,7 @@ var (
 		[]string{"controller"},
 	)
 
+	// LastSuccessfulReconcileTimestamp records the Unix timestamp of the last successful reconciliation.
 	LastSuccessfulReconcileTimestamp = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -41,6 +46,7 @@ var (
 		[]string{"controller"},
 	)
 
+	// ReconcileGroupsDesired records the number of desired group assignments from live RBAC bindings.
 	ReconcileGroupsDesired = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -49,6 +55,7 @@ var (
 		},
 	)
 
+	// ReconcileGroupsActual records the number of managed group assignments observed after reconciliation.
 	ReconcileGroupsActual = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -57,6 +64,7 @@ var (
 		},
 	)
 
+	// ReconcileGroupsEnsured records desired groups ensured during the last reconciliation.
 	ReconcileGroupsEnsured = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -65,6 +73,7 @@ var (
 		},
 	)
 
+	// ReconcileGroupsToRemove records stale managed group assignments found during the last reconciliation.
 	ReconcileGroupsToRemove = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -73,6 +82,7 @@ var (
 		},
 	)
 
+	// GroupCandidatesTotal counts Kubernetes RBAC Group subjects seen during reconciliation.
 	GroupCandidatesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -82,6 +92,7 @@ var (
 		[]string{"source"},
 	)
 
+	// InvalidGroupSubjectsTotal counts ignored Kubernetes RBAC Group subjects by source and reason.
 	InvalidGroupSubjectsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -91,6 +102,7 @@ var (
 		[]string{"source", "reason"},
 	)
 
+	// GroupLookupTotal counts Microsoft Entra group lookup attempts by result.
 	GroupLookupTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -100,6 +112,7 @@ var (
 		[]string{"result"},
 	)
 
+	// AssignmentOperationsTotal counts Microsoft Entra assignment operations by operation and result.
 	AssignmentOperationsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -109,6 +122,7 @@ var (
 		[]string{"operation", "result"},
 	)
 
+	// AzureRequestsTotal counts Microsoft Graph requests by operation and result.
 	AzureRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -118,6 +132,7 @@ var (
 		[]string{"operation", "result"},
 	)
 
+	// AzureRequestDuration records Microsoft Graph request duration by operation.
 	AzureRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -128,6 +143,7 @@ var (
 		[]string{"operation"},
 	)
 
+	// AuthFailuresTotal counts authentication or authorization failures by phase.
 	AuthFailuresTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -137,6 +153,7 @@ var (
 		[]string{"phase"},
 	)
 
+	// GroupCacheEntries records the number of Microsoft Entra groups cached by object ID.
 	GroupCacheEntries = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -145,6 +162,7 @@ var (
 		},
 	)
 
+	// GroupCacheRequestsTotal counts group cache requests by result.
 	GroupCacheRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -176,6 +194,7 @@ func init() {
 	)
 }
 
+// ObserveReconcile records metrics for one controller reconciliation attempt.
 func ObserveReconcile(controller string, start time.Time, err error) {
 	result := "success"
 	if err != nil {
@@ -188,6 +207,7 @@ func ObserveReconcile(controller string, start time.Time, err error) {
 	ReconcileDuration.WithLabelValues(controller).Observe(time.Since(start).Seconds())
 }
 
+// ObserveAzureRequest records metrics for one Microsoft Graph request and returns its classified result.
 func ObserveAzureRequest(operation string, start time.Time, err error) string {
 	result := ClassifyAzureError(err)
 	AzureRequestsTotal.WithLabelValues(operation, result).Inc()
@@ -198,6 +218,7 @@ func ObserveAzureRequest(operation string, start time.Time, err error) string {
 	return result
 }
 
+// ClassifyAzureError maps Azure and generic errors to metric result labels.
 func ClassifyAzureError(err error) string {
 	if err == nil {
 		return "success"

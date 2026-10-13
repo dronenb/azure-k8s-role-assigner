@@ -28,6 +28,7 @@ vars:
   SA_KEY_DIR: '{{.SA_KEY_DIR | default ".e2e"}}'
   SA_KEY_FILE: '{{.SA_KEY_DIR | default ".e2e"}}/sa-signing.key'
   E2E_TEST_USER_PASSWORD_FILE: '{{.SA_KEY_DIR | default ".e2e"}}/e2e-test-user-password'
+  TOFU_BASE_PARALLELISM: '{{.TOFU_BASE_PARALLELISM | default "25"}}'
 
 tasks:
   default:
@@ -266,22 +267,50 @@ tasks:
       - task: kind:load-image
       - task: kind:deploy
 
+  # --- Static Infrastructure ---
+
+  tofu:init:
+    desc: Initialize static OpenTofu infrastructure.
+    dir: tofu
+    cmds:
+      - tofu init -input=false
+
+  tofu:plan:
+    desc: Plan static OpenTofu infrastructure with higher parallelism for many Entra groups.
+    dir: tofu
+    cmds:
+      - tofu plan -input=false -parallelism={{.TOFU_BASE_PARALLELISM}} {{.CLI_ARGS}}
+
+  tofu:apply:
+    desc: Apply static OpenTofu infrastructure with higher parallelism for many Entra groups.
+    dir: tofu
+    cmds:
+      - tofu apply -input=false -parallelism={{.TOFU_BASE_PARALLELISM}} {{.CLI_ARGS}}
+
+  tofu:destroy:
+    desc: Destroy static OpenTofu infrastructure with higher parallelism for many Entra groups.
+    dir: tofu
+    cmds:
+      - tofu destroy -input=false -parallelism={{.TOFU_BASE_PARALLELISM}} {{.CLI_ARGS}}
+
   # --- E2E Testing ---
 
   e2e:
     desc: Run full end-to-end test suite (kind + Entra ID).
-    deps:
-      - e2e:download-key
-      - e2e:download-user-password
-      - e2e:infra-up
-      - e2e:cluster-up
-      - e2e:argocd-up
-      - e2e:build-image
-      - e2e:load-image
-      - e2e:deploy
-      - e2e:create-rbac
-      - e2e:create-argocd-rbac
     cmds:
+      # Provision in dependency order, then run the Go-native Ginkgo verifier.
+      # `deps` runs in parallel, so the ordered provisioning chain lives in
+      # `cmds`; the Go suite itself performs no provisioning.
+      - task: e2e:download-key
+      - task: e2e:download-user-password
+      - task: e2e:infra-up
+      - task: e2e:cluster-up
+      - task: e2e:argocd-up
+      - task: e2e:build-image
+      - task: e2e:load-image
+      - task: e2e:deploy
+      - task: e2e:create-rbac
+      - task: e2e:create-argocd-rbac
       - |
         repo_root="$(pwd)"
         set -euo pipefail
@@ -317,6 +346,7 @@ tasks:
       - task: e2e:infra-down
 
   e2e:download-key:
+    desc: Download the stable SA signing key from Key Vault.
     preconditions:
       - sh: 'test -s "{{.SA_KEY_FILE}}" || [ -n "{{.KEY_VAULT_NAME}}" ]'
         msg: "SA_KEY_FILE or KEY_VAULT_NAME must be provided (pre-stage the signing key in .e2e/ or set KEY_VAULT_NAME)"
@@ -339,6 +369,7 @@ tasks:
       - test -s "{{.SA_KEY_FILE}}"
 
   e2e:download-user-password:
+    desc: Download the static e2e test user password from Key Vault.
     preconditions:
       - sh: 'test -s "{{.E2E_TEST_USER_PASSWORD_FILE}}" || [ -n "{{.KEY_VAULT_NAME}}" ]'
         msg: "E2E_TEST_USER_PASSWORD_FILE or KEY_VAULT_NAME must be provided (pre-stage the password in .e2e/ or set KEY_VAULT_NAME)"
@@ -361,6 +392,7 @@ tasks:
       - test -s "{{.E2E_TEST_USER_PASSWORD_FILE}}"
 
   e2e:infra-up:
+    desc: Provision Entra ID resources with OpenTofu.
     dir: e2e/tofu
     preconditions:
       - sh: '[ -n "{{.OIDC_ISSUER_URL}}" ]'
@@ -389,6 +421,7 @@ tasks:
         {{if .TF_VAR_name_suffix}}-var="name_suffix={{.TF_VAR_name_suffix}}"{{end}}
 
   e2e:infra-down:
+    desc: Destroy Entra ID resources with OpenTofu.
     dir: e2e/tofu
     preconditions:
       - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ]'
@@ -420,6 +453,7 @@ tasks:
         done
 
   e2e:infra-output:
+    desc: Export OpenTofu outputs as environment variables.
     dir: e2e/tofu
     cmds:
       - |
@@ -438,6 +472,7 @@ tasks:
         echo "E2E_GROUP_ARGOCD_APPPROJECT_ID=$(tofu output -raw test_group_argocd_appproject_id)"
 
   e2e:cluster-up:
+    desc: Create kind cluster for e2e tests.
     preconditions:
       - sh: '[ -n "{{.OIDC_ISSUER_URL}}" ]'
         msg: "OIDC_ISSUER_URL must be set"
@@ -655,6 +690,7 @@ tasks:
         done
 
   e2e:build-image:
+    desc: Build controller image as OCI tarball for e2e.
     cmds:
       - task: build-image
         vars:
@@ -663,16 +699,25 @@ tasks:
           IMG_TARBALL: e2e-image.tar
 
   e2e:load-image:
+    desc: Load the ko-built tarball into the kind cluster.
     preconditions:
       - test -f e2e-image.tar
     cmds:
       - kind load image-archive e2e-image.tar --name {{.KIND_CLUSTER_NAME}}
 
   e2e:deploy:
+    desc: Deploy controller with e2e configuration.
     cmds:
       - |
         set -euo pipefail
         eval "$(task e2e:infra-output)"
+        argocd_instances="$(jq -cn \
+          --arg sp "${ARGOCD_AZURE_SERVICE_PRINCIPALS}" \
+          --arg role "${ARGOCD_AZURE_APP_ROLE_ID}" \
+          '[
+            {name: "e2e-primary", resource: {namespace: "argocd", name: "e2e-argocd"}, rbacConfigMap: {name: "argocd-rbac-cm"}, appProjects: {enabled: false}, azure: {servicePrincipals: $sp, appRoleId: $role}},
+            {name: "e2e-secondary", resource: {namespace: "argocd-shared"}, rbacConfigMap: {name: "argocd-rbac-cm"}, appProjects: {enabled: true}, azure: {servicePrincipals: $sp, appRoleId: $role}}
+          ]')"
         helm upgrade --install azure-k8s-role-assigner charts/azure-k8s-role-assigner \
           --namespace azure-k8s-role-assigner \
           --create-namespace \
@@ -683,10 +728,13 @@ tasks:
           --set-literal azure.servicePrincipals="${AZURE_SERVICE_PRINCIPALS}" \
           --set-string azure.tenantId="${AZURE_TENANT_ID}" \
           --set-string azure.clientId="${AZURE_CLIENT_ID}" \
-          --set-string azure.appRoleId="${AZURE_APP_ROLE_ID}"
+          --set-string azure.appRoleId="${AZURE_APP_ROLE_ID}" \
+          --set-string argocd.enabled=true \
+          --set-json "argocd.instances=${argocd_instances}"
       - kubectl rollout status deployment/azure-k8s-role-assigner -n azure-k8s-role-assigner --timeout=5m
 
   e2e:create-rbac:
+    desc: Create test RBAC bindings using Terraform-provisioned group IDs.
     cmds:
       - |
         set -euo pipefail
@@ -752,6 +800,7 @@ tasks:
       - kubectl delete -k github.com/argoproj-labs/argocd-operator/config/default?ref={{.ARGOCD_OPERATOR_VERSION}} --ignore-not-found
 
   e2e:cluster-down:
+    desc: Delete the kind e2e cluster.
     cmds:
       - task: kind:delete-internal
         vars:

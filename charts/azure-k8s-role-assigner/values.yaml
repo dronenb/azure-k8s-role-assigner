@@ -36,6 +36,27 @@ azure:
   authorityHost: https://login.microsoftonline.com/
   tokenCredentials: prod
 
+argocd:
+  enabled: false
+  # Prefer instances for multiple Argo CD installations. Instances that share
+  # the same Azure target are reconciled as one union of source namespaces.
+  instances: []
+  resource:
+    namespace: argocd
+    name: ""
+  rbacConfigMap:
+    name: argocd-rbac-cm
+  appProjects:
+    enabled: true
+  azure:
+    servicePrincipals: ""
+    appRoleId: ""
+
+proxy:
+  http_proxy: ""
+  https_proxy: ""
+  no_proxy: ""
+
 extraEnv: []
 
 resources:

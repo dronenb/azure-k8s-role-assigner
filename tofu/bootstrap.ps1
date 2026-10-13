@@ -199,6 +199,8 @@ $vars = @{
 	"E2E_TEST_USER_PASSWORD_SECRET_NAME" = (tofu output -raw e2e_test_user_password_secret_name)
 	"TEST_GROUP_CRB_ID"                  = (tofu output -raw test_group_crb_id)
 	"TEST_GROUP_RB_ID"                   = (tofu output -raw test_group_rb_id)
+	"TEST_GROUP_ARGOCD_CONFIGMAP_ID"     = (tofu output -raw test_group_argocd_configmap_id)
+	"TEST_GROUP_ARGOCD_APPPROJECT_ID"    = (tofu output -raw test_group_argocd_appproject_id)
 	"E2E_TEST_USER_UPN"                  = (tofu output -raw e2e_test_user_upn)
 }
 
