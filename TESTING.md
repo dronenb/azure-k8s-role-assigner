@@ -297,10 +297,10 @@ OpenTofu, Taskfile, or workflow files. It has two jobs:
    `e2e:infra-down`
 
 The Ginkgo suite verifies both the cluster access-token group claims (RoleBinding
-+ ClusterRoleBinding presence, and group removal after a binding is deleted) and
-the Argo CD ID-token group claims (ConfigMap + AppProject union). All cluster
-assertions use a controller-runtime client and Gomega `Eventually` — no shell
-or `kubectl`.
+and ClusterRoleBinding presence, and group removal after a binding is deleted)
+and the Argo CD ID-token group claims (ConfigMap and AppProject union). All
+cluster assertions use a controller-runtime client and Gomega `Eventually` — no
+shell or `kubectl`.
 
 No secrets stored in GitHub.
 

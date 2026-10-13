@@ -207,6 +207,10 @@ jobs:
 
       - name: Delete kind cluster
         if: always()
+        # The runner is ephemeral; rootless podman teardown can fail with
+        # "rootless netns: kill network process: permission denied". Do not
+        # let best-effort cluster deletion mask real test results.
+        continue-on-error: true
         run: task e2e:cluster-down
 
       - name: Destroy Entra resources
