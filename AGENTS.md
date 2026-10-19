@@ -54,6 +54,16 @@ Guidance for AI coding agents working in this repository.
 - Guard SARIF uploads with a check that the SARIF file is non-empty and contains at least one run with results before calling `upload-sarif`.
 - Missing or empty SARIF should skip upload; malformed JSON should still fail.
 
+## Vulnerability Scanning
+
+- Container image and IaC scanning uses Trivy via `.github/workflows/scan-trivy.yml`.
+- The old Clair workflows (`clair-db.yml` and the Clair steps in `release-preview.yml`) were removed. Do not reintroduce them.
+- `limit-severities-for-sarif: true` is mandatory on every Trivy invocation. Without it `trivy-action` unsets `TRIVY_SEVERITY` for SARIF output and the report silently includes every severity.
+- Trivy cannot read the `ko` OCI archive tarball directly. Unpack the layout with `tar -xf` and scan the directory.
+- Every scan sets a distinct SARIF `category` so results stay separate from `govulncheck` and MegaLinter.
+- Suppressions belong in `.trivyignore.yaml` and must include a `statement` and an `expired_at` date. Do not add path-qualified suppressions: Trivy reports targets relative to the scan root, so the same entry breaks depending on which directory is scanned.
+- `govulncheck` remains the source of truth for Go dependency reachability. Trivy image scanning is the broader net for OS packages.
+
 ## Release Automation
 
 - Release preview comments should update in place instead of creating duplicates.

@@ -1,0 +1,127 @@
+name: Trivy Scan
+
+on:
+  workflow_call:
+    inputs:
+      scan-type:
+        description: Trivy scan type (image or config).
+        required: true
+        type: string
+      scan-ref:
+        description: >-
+          Target to scan. For image scans this is a registry reference; for
+          config scans it is a repository path. Defaults to the repository
+          root, which is a harmless placeholder when input is set.
+        required: false
+        default: "."
+        type: string
+      input:
+        description: >-
+          Path to a local OCI layout directory to scan as an image. Trivy needs
+          this instead of a positional argument, because a positional path is
+          interpreted as an image reference.
+        required: false
+        default: ""
+        type: string
+      severity:
+        description: Comma-separated severities that are reported.
+        required: false
+        default: HIGH,CRITICAL
+        type: string
+      exit-code:
+        description: >-
+          Exit code when findings are detected. Use 0 to report without failing
+          the job, and 1 to enforce a gate.
+        required: false
+        default: "0"
+        type: string
+      ignore-unfixed:
+        description: Only report vulnerabilities that have a fix available.
+        required: false
+        default: false
+        type: boolean
+      category:
+        description: Code scanning category, used to keep SARIF results separate.
+        required: true
+        type: string
+      platform:
+        description: >-
+          Platform to scan for image scans, for example linux/amd64. Trivy
+          scans a single platform per run.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Trivy ${{ inputs.scan-type }} scan
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    # The calling job must grant these permissions. Callers that scan a
+    # registry image need packages: read; config-only callers still have to
+    # declare it because a called workflow's permissions are the ceiling.
+    permissions:
+      contents: read
+      packages: read # Pull published images when scanning a registry reference.
+      security-events: write # Upload Trivy SARIF results to code scanning.
+
+    steps:
+      - name: Checkout
+        # Check latest: TAG=$(gh api repos/actions/checkout/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/checkout/git/ref/tags/$TAG --jq .object.sha); echo "actions/checkout@$SHA # $TAG"
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy
+        # Check latest: TAG=$(gh api repos/aquasecurity/trivy-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/aquasecurity/trivy-action/git/ref/tags/$TAG); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$(jq -r .object.type <<<"$REF_JSON")" = tag ]; then SHA=$(gh api repos/aquasecurity/trivy-action/git/tags/$SHA --jq .object.sha); fi; echo "aquasecurity/trivy-action@$SHA # $TAG"
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          # The action exposes no platform input, so set Trivy's own variable.
+          # Trivy ignores the empty case used by non-image scans.
+          TRIVY_PLATFORM: ${{ inputs.platform }}
+          # The action always appends scan-ref as a positional argument, which
+          # Trivy treats as an image reference. For a local layout, point
+          # TRIVY_INPUT at it and let scan-ref be a harmless placeholder.
+          TRIVY_INPUT: ${{ inputs.input }}
+          # Registry credentials are only used when scan-ref points at a
+          # registry; they are ignored for local paths and config scans.
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        with:
+          scan-type: ${{ inputs.scan-type }}
+          scan-ref: ${{ inputs.scan-ref }}
+          # Pin the scanner binary explicitly; the action otherwise installs a
+          # bundled default version.
+          version: v0.76.0
+          format: sarif
+          output: trivy-results.sarif
+          severity: ${{ inputs.severity }}
+          exit-code: ${{ inputs.exit-code }}
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          hide-progress: true
+          # Required. Without this the action unsets TRIVY_SEVERITY when
+          # emitting SARIF, so the report includes every severity and no longer
+          # matches the configured gate.
+          limit-severities-for-sarif: true
+          # Set explicitly so suppressions apply to image scans too, which run
+          # against a path outside the repository. The file must exist.
+          trivyignores: .trivyignore.yaml
+
+      - name: Upload Trivy SARIF artifact
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.category }}-sarif
+          path: trivy-results.sarif
+
+      - name: Upload Trivy SARIF to GitHub
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        with:
+          sarif_file: trivy-results.sarif
+          category: ${{ inputs.category }}

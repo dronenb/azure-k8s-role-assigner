@@ -170,3 +170,30 @@ See [`RELEASING.md`](RELEASING.md) for the PR-based release process, including t
 - Controller in e2e uses projected SA token (no client secrets)
 - Cosign keyless signing uses GitHub OIDC (no static keys)
 - Workflow permissions are scoped to the minimum required
+
+## Vulnerability and Misconfiguration Scanning
+
+Scanning uses [Trivy](https://trivy.dev) through the reusable workflow
+`.github/workflows/scan-trivy.yml`.
+
+| Scan | Where | Enforcement |
+| --- | --- | --- |
+| Container image | `tests.yml` on pull requests | Report only |
+| Container image | `release-preview.yml` on release candidates | Blocks at `CRITICAL` |
+| Container image | `scan-scheduled.yml` daily | Report only |
+| Helm chart | `tests.yml` and `release-preview.yml` | Report on PRs, blocks on release |
+| OpenTofu / IaC | `tests.yml` and `release-preview.yml` | Report on PRs, blocks on release |
+
+Notes for contributors:
+
+- `govulncheck` remains the source of truth for Go dependency reachability. The
+  image scan is a broader net for OS packages and base image contents.
+- Suppressions live in `.trivyignore.yaml` and require a `statement` and an
+  `expired_at` date. Do not suppress a finding without recording why.
+- `limit-severities-for-sarif: true` is mandatory. Without it the Trivy action
+  unsets `TRIVY_SEVERITY` for SARIF output, so the report no longer matches the
+  configured gate.
+- Trivy cannot read the `ko` OCI archive tarball directly, so both image scan
+  paths unpack the layout first and scan the directory.
+- Each scan sets a distinct SARIF `category` so results remain separate from
+  `govulncheck` and MegaLinter in the code scanning view.
