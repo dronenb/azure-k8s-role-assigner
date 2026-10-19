@@ -100,6 +100,20 @@ az login
 task e2e
 ```
 
+`task e2e` provisions the per-run Entra resources (`e2e/tofu/`), starts a kind
+cluster, installs Argo CD, deploys the controller, creates the RoleBinding /
+ClusterRoleBinding / Argo CD RBAC fixtures, and then runs the Go/Ginkgo e2e
+suite. The suite is Go-native (controller-runtime client + `Eventually`) and
+does not shell out to `kubectl`/`helm` for assertions.
+
+Afterward, tear down the cluster and per-run Azure resources with:
+
+```bash
+task e2e:teardown
+```
+
+(`e2e:teardown` runs `e2e:cleanup`, `e2e:cluster-down`, and `e2e:infra-down`.)
+
 With those prerequisites and sufficient Entra permissions, the remaining e2e setup is automated.
 
 ## Creating Your Own OIDC Issuer
@@ -216,8 +230,11 @@ export TEST_GROUP_ARGOCD_APPPROJECT_ID="$(cd tofu && tofu output -raw test_group
 export E2E_TEST_USER_UPN="$(cd tofu && tofu output -raw e2e_test_user_upn)"
 export E2E_TEST_USER_PASSWORD_SECRET_NAME="$(cd tofu && tofu output -raw e2e_test_user_password_secret_name)"
 
-# Run full e2e (downloads key from Key Vault automatically)
-task e2e:ci
+# Run full e2e (downloads key and user password from Key Vault automatically)
+task e2e
+
+# Tear down the kind cluster and per-run Entra resources when done
+task e2e:teardown
 ```
 
 ### Setting up static infrastructure (admins only)
@@ -267,16 +284,23 @@ OpenTofu, Taskfile, or workflow files. It has two jobs:
 **`e2e`** — runs only after `unit` passes, and only for non-fork PRs:
 
 1. Authenticates via Workload Identity Federation (no secrets)
-2. Downloads signing key from Key Vault
-3. Starts a kind cluster with a stable OIDC issuer
-4. Provisions per-run Azure resources
-5. Builds, loads, deploys
-6. Verifies bound groups appear in the token (`task e2e:verify`)
-7. Verifies two Argo CD source namespaces sharing one Azure target converge to
-   one union of Argo CD groups (`task e2e:verify-argocd`)
-8. Verifies deleting a binding removes its group from the token, while a
-   still-bound group remains (`task e2e:verify-deletion`)
-9. Always cleans up with `task e2e:infra-down`
+2. Runs `task e2e`, which (in dependency order):
+   - Downloads the signing key and e2e user password from Key Vault (when
+     `KEY_VAULT_NAME` is set)
+   - Provisions per-run Azure resources (`e2e/tofu/`)
+   - Starts a kind cluster with a stable OIDC issuer
+   - Installs Argo CD (`e2e:argocd-up`)
+   - Builds, loads, and deploys the controller image
+   - Creates the RoleBinding / ClusterRoleBinding / Argo CD RBAC fixtures
+   - Runs the Go-native Ginkgo suite (`go test ./e2e`)
+3. Always tears down (via `always()` steps): `e2e:cleanup`, `e2e:cluster-down`,
+   `e2e:infra-down`
+
+The Ginkgo suite verifies both the cluster access-token group claims (RoleBinding
+and ClusterRoleBinding presence, and group removal after a binding is deleted)
+and the Argo CD ID-token group claims (ConfigMap and AppProject union). All
+cluster assertions use a controller-runtime client and Gomega `Eventually` — no
+shell or `kubectl`.
 
 No secrets stored in GitHub.
 
@@ -312,7 +336,7 @@ No secrets stored in GitHub.
 ### Workload Identity Federation
 
 - **No controller client secrets** — the controller authenticates with projected service account tokens
-- **Fresh verification tokens** — kubelogin cache is cleared between attempts
+- **Fresh verification tokens** — each ROPC request acquires a new token directly from Entra, independent of any local cache
 - **Automatic cleanup** — `task e2e:infra-down` destroys all per-run resources
 
 ## Notes

@@ -137,10 +137,10 @@ export E2E_TEST_USER_UPN="$(cd tofu && tofu output -raw e2e_test_user_upn)"
 export E2E_TEST_USER_PASSWORD_SECRET_NAME="$(cd tofu && tofu output -raw e2e_test_user_password_secret_name)"
 export AZURE_APP_ROLE_ID="$(cd e2e/tofu && tofu output -raw cluster_app_role_id)"
 
-task e2e:ci  # Downloads key from Key Vault, then runs full suite
+task e2e  # Downloads key and password from Key Vault, then runs the full suite
 ```
 
-`AZURE_APP_ROLE_ID` is shown for ad hoc/local deployment flows. `task e2e:ci` derives the dynamic value from `e2e/tofu` during deployment.
+`AZURE_APP_ROLE_ID` is shown for ad hoc/local deployment flows. `task e2e` derives the dynamic value from `e2e/tofu` during deployment.
 
 ### Setting up static infrastructure (optional, project admins only)
 
