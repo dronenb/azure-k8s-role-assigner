@@ -64,6 +64,15 @@ Guidance for AI coding agents working in this repository.
 - Suppressions belong in `.trivyignore.yaml` and must include a `statement` and an `expired_at` date. Do not add path-qualified suppressions: Trivy reports targets relative to the scan root, so the same entry breaks depending on which directory is scanned.
 - `govulncheck` remains the source of truth for Go dependency reachability. Trivy image scanning is the broader net for OS packages.
 
+## Dependency Updates
+
+- Renovate config lives in `renovate.json`; validate changes with `npx --package renovate renovate-config-validator`.
+- `main` requires signed commits and linear history with no bypass actors, so `platformCommit` is enabled. Renovate commits through the GitHub API, which signs them. Do not disable it.
+- There is no merge queue and no required status checks on `main`, so Renovate must not automerge. Leave `automerge` off and let a human merge.
+- Pinned CLI tools installed by `curl` in workflows (git-cliff, helm, ko, kind) are tracked with `customManager` regexes. When adding a new curl pin, add a matching manager or the version will silently stop updating.
+- The ko base image is pinned twice: `.ko.yaml` `defaultBaseImage` and `.goreleaser.yml` `kos.base_image`. Both need a manager so they stay in sync.
+- `terraform.lock.hcl` is gitignored, so Renovate only bumps the `~>` constraints in `tofu/main.tf` and `e2e/tofu/main.tf`; the lock is regenerated on the next `tofu init`.
+
 ## Release Automation
 
 - Release preview comments should update in place instead of creating duplicates.

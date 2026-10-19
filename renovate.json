@@ -1,0 +1,171 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "timezone": "UTC",
+  "schedule": ["before 6am on monday"],
+  "rebaseWhen": "behind-base-branch",
+  "platformCommit": "enabled",
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "separateMultipleMajor": true,
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "pinDigests": true,
+  "labels": ["dependencies"],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["dependencies", "security"]
+  },
+  "packageRules": [
+    {
+      "description": "main requires signed commits and linear history. platformCommit makes Renovate commit through the GitHub API so commits are signed, and GitHub only offers linear-safe merge methods.",
+      "matchPackageNames": ["*"],
+      "addLabels": ["dependencies"]
+    },
+    {
+      "description": "Go dependencies are runtime code; surface them as fixes so git-cliff groups them under Bug Fixes.",
+      "matchManagers": ["gomod"],
+      "semanticCommitType": "fix",
+      "groupName": "go dependencies",
+      "matchDepNames": ["!go", "!toolchain"]
+    },
+    {
+      "description": "Toolchain and language version bumps are chores, not fixes.",
+      "matchDepNames": ["go", "toolchain"],
+      "matchManagers": ["gomod"],
+      "semanticCommitType": "chore",
+      "separateMultipleMajor": true,
+      "groupName": "go toolchain",
+      "groupSlug": "go-toolchain"
+    },
+    {
+      "description": "Keep all GitHub Actions pins together so one PR updates the whole workflow set.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    },
+    {
+      "description": "OpenTofu providers move together; they are additive and validated by CI.",
+      "matchManagers": ["terraform"],
+      "groupName": "opentofu providers"
+    },
+    {
+      "description": "CLI tools installed via curl in workflows and the Taskfile.",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["github-releases", "github-tags", "golang-version"],
+      "groupName": "cli tools"
+    },
+    {
+      "description": "Container images are digest-pinned; major bumps need a manual look.",
+      "matchDatasources": ["docker"],
+      "groupName": "container images"
+    },
+    {
+      "description": "Trivy and the scanner version pinned in workflows.",
+      "matchPackageNames": ["aquasecurity/trivy"],
+      "groupName": "trivy"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "git-cliff, pinned by curl in release workflows. The version appears twice in the URL, so the whole match is templated.",
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
+      "matchStrings": [
+        "https://github\\.com/orhun/git-cliff/releases/download/v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)/git-cliff-[0-9.]+-x86_64-unknown-linux-gnu\\.tar\\.gz"
+      ],
+      "autoReplaceStringTemplate": "https://github.com/orhun/git-cliff/releases/download/v{{{newValue}}}/git-cliff-{{{newValue}}}-x86_64-unknown-linux-gnu.tar.gz",
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "orhun/git-cliff"
+    },
+    {
+      "customType": "regex",
+      "description": "ko, pinned by curl in CI. The version appears twice in the URL, so the whole match is templated.",
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
+      "matchStrings": [
+        "https://github\\.com/ko-build/ko/releases/download/v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)/ko_[0-9.]+_Linux_x86_64\\.tar\\.gz"
+      ],
+      "autoReplaceStringTemplate": "https://github.com/ko-build/ko/releases/download/v{{{newValue}}}/ko_{{{newValue}}}_Linux_x86_64.tar.gz",
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "ko-build/ko"
+    },
+    {
+      "customType": "regex",
+      "description": "Helm, pinned by curl in release and CI workflows.",
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
+      "matchStrings": [
+        "https://get\\.helm\\.sh/helm-v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)-linux-amd64\\.tar\\.gz"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "helm/helm",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "description": "kind, pinned by curl in the e2e job.",
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
+      "matchStrings": [
+        "https://kind\\.sigs\\.k8s\\.io/dl/v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)/kind-linux-amd64"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "kubernetes-sigs/kind"
+    },
+    {
+      "customType": "regex",
+      "description": "Trivy binary version passed to trivy-action.",
+      "fileMatch": ["^\\.github/workflows/[^/]+\\.ya?ml$"],
+      "matchStrings": [
+        "bundled default version\\.\\s*#?\\s*\\n?\\s*version:\\s*v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "aquasecurity/trivy"
+    },
+    {
+      "customType": "regex",
+      "description": "MegaLinter version and image digest in the shared env file.",
+      "fileMatch": ["^\\.github/megalinter-image\\.env$"],
+      "matchStrings": [
+        "MEGALINTER_VERSION=\"\\$\\{MEGALINTER_VERSION:-v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\}\"",
+        "MEGALINTER_IMAGE_DIGEST=\"\\$\\{MEGALINTER_IMAGE_DIGEST:-sha256:(?<currentDigest>[a-f0-9]{64})\\}\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "oxsecurity/megalinter"
+    },
+    {
+      "customType": "regex",
+      "description": "ko base image digest in .ko.yaml. GoReleaser sets the same value in .goreleaser.yml, but that one is pinned by digest too and updated separately below.",
+      "fileMatch": ["^\\.ko\\.yaml$"],
+      "matchStrings": [
+        "defaultBaseImage:\\s*(?<depName>[^@\\s:]+(?:/[^@\\s:]+)*)(?::(?<currentTag>[^@\\s]+))?@sha256:(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "autoReplaceStringTemplate": "defaultBaseImage: {{depName}}{{#if newTag}}:{{newTag}}{{/if}}@sha256:{{newDigest}}"
+    },
+    {
+      "customType": "regex",
+      "description": "kos base_image digest in .goreleaser.yml, which must stay in sync with .ko.yaml.",
+      "fileMatch": ["^\\.goreleaser\\.ya?ml$"],
+      "matchStrings": [
+        "base_image:\\s*(?<depName>[^@\\s:]+(?:/[^@\\s:]+)*)(?::(?<currentTag>[^@\\s]+))?@sha256:(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "autoReplaceStringTemplate": "base_image: {{depName}}{{#if newTag}}:{{newTag}}{{/if}}@sha256:{{newDigest}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Argo CD Operator revision pinned in the Taskfile.",
+      "fileMatch": ["^Taskfile\\.ya?ml$"],
+      "matchStrings": [
+        "ARGOCD_OPERATOR_VERSION: '\\{\\{\\.ARGOCD_OPERATOR_VERSION \\| default \"v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\"\\}\\}'"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "argoproj-labs/argocd-operator"
+    }
+  ],
+  "ignorePaths": [
+    "**/.terraform/**",
+    "**/e2e-image.tar",
+    "**/dist/**",
+    "megalinter-reports/**"
+  ]
+}
