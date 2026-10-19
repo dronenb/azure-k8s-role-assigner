@@ -58,6 +58,8 @@ Guidance for AI coding agents working in this repository.
 
 - Container image and IaC scanning uses Trivy via `.github/workflows/scan-trivy.yml`.
 - The old Clair workflows (`clair-db.yml` and the Clair steps in `release-preview.yml`) were removed. Do not reintroduce them.
+- `.goreleaser.yml` must set `kos.base_image` explicitly. GoReleaser does not read `.ko.yaml`, so omitting it silently falls back to ko's default base image while the OCI label still claims the pinned one.
+- Container images are published with an SPDX SBOM attached and written to `dist/sbom`. Keep `kos.sbom` enabled.
 - `limit-severities-for-sarif: true` is mandatory on every Trivy invocation. Without it `trivy-action` unsets `TRIVY_SEVERITY` for SARIF output and the report silently includes every severity.
 - Trivy cannot read the `ko` OCI archive tarball directly. Unpack the layout with `tar -xf` and scan the directory.
 - Every scan sets a distinct SARIF `category` so results stay separate from `govulncheck` and MegaLinter.
