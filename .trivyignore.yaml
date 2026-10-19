@@ -1,0 +1,25 @@
+# Trivy suppressions.
+#
+# Every entry needs a reason and an expiry date. Suppressions are a way to
+# record accepted risk deliberately, not to silence the scanner.
+#
+# Backlog for these items: https://github.com/dronenb/azure-k8s-role-assigner/issues/48
+#
+# Paths are deliberately omitted: Trivy reports targets relative to the scan
+# root, so a path-qualified rule breaks depending on whether the scanner is
+# pointed at the repository root or at tofu/ directly.
+
+misconfigurations:
+  # The CI Terraform state backend and Key Vault use public endpoints. Denying
+  # by default requires adding the runner egress ranges at the same time,
+  # otherwise CI loses access to shared state. Tracked as a deliberate change.
+  - id: AZU-0012
+    expired_at: 2027-01-31
+    statement: >-
+      Storage account network rules are public. Fixing requires pairing the
+      deny action with runner allow rules; tracked in the hardening backlog.
+  - id: AZU-0013
+    expired_at: 2027-01-31
+    statement: >-
+      Key Vault has no network ACL block. Fixing requires pairing the deny
+      action with runner allow rules; tracked in the hardening backlog.

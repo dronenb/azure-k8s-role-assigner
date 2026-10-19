@@ -62,6 +62,13 @@ It does three things:
 - appends image, Helm chart, and cosign verification instructions to the release notes
 - packages the Helm chart with the computed version and app version
 - runs `goreleaser release --clean --snapshot --skip=publish`
+- scans the built image, the Helm chart, and the OpenTofu configuration with Trivy
+
+The Trivy scans act as release gates. The image must have no fixable `CRITICAL`
+vulnerabilities, and the chart and infrastructure as code must have no
+`HIGH` or `CRITICAL` misconfigurations. A failing scan blocks the release
+preview, so fix the finding or record a justified suppression in
+`.trivyignore.yaml` before merging.
 
 Review the preview comment before merging. It should show the expected version and release notes, and the GoReleaser dry run should pass.
 
@@ -83,6 +90,10 @@ The release workflow:
 - signs checksums and container manifests with keyless cosign
 - creates the GitHub Release and uploads the packaged Helm chart
 - updates the GitHub Release notes with digest-pinned image and chart artifact references after publishing completes
+
+Published images are also rescanned daily by the `Scheduled Image Scan`
+workflow, which reports new vulnerabilities found in already released
+versions.
 
 ## Versioning Rules
 

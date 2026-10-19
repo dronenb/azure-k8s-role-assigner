@@ -806,6 +806,37 @@ tasks:
         vars:
           KIND_CLUSTER_NAME: "{{.KIND_CLUSTER_NAME}}"
 
+  # --- Scanning ---
+
+  scan:image:
+    desc: Scan the built container image for vulnerabilities with Trivy.
+    preconditions:
+      - sh: command -v trivy >/dev/null
+        msg: trivy is required (https://trivy.dev/latest/getting-started/installation/)
+    cmds:
+      - task: build-image
+        vars:
+          IMG_TARBALL: image.tar
+      - |
+        set -euo pipefail
+        # Trivy cannot read the ko OCI archive directly, so scan the layout.
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "${tmp}"' EXIT
+        tar -xf image.tar -C "${tmp}"
+        trivy image --input "${tmp}" \
+          --severity HIGH,CRITICAL \
+          --ignore-unfixed \
+          --ignorefile .trivyignore.yaml
+
+  scan:config:
+    desc: Scan the Helm chart and OpenTofu configuration for misconfigurations.
+    preconditions:
+      - sh: command -v trivy >/dev/null
+        msg: trivy is required (https://trivy.dev/latest/getting-started/installation/)
+    cmds:
+      - trivy config charts/azure-k8s-role-assigner --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml
+      - trivy config tofu --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml
+
   changelog:
     desc: Generate changelog using git-cliff.
     cmds:

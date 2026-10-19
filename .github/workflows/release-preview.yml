@@ -20,7 +20,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: write # Create or update the release preview PR comment.
-      security-events: write # Upload Clair SARIF results to code scanning.
 
     steps:
       - name: Checkout
@@ -83,15 +82,6 @@ jobs:
             --destination dist
         env:
           VERSION: ${{ steps.version.outputs.version }}
-
-      - name: Restore Clair vulnerability DB
-        # Check latest: TAG=$(gh api repos/actions/cache/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/cache/git/ref/tags/$TAG --jq .object.sha); echo "actions/cache/restore@$SHA # $TAG"
-        uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
-        with:
-          path: matcher.db
-          key: clair-db-v1-${{ github.run_id }}
-          restore-keys: |
-            clair-db-v1-
 
       - name: Set up Podman Docker compatibility
         run: |
@@ -193,38 +183,45 @@ jobs:
           echo "image-path=${image_path}" >> "${GITHUB_OUTPUT}"
           echo "Saved ${image_ref} to ${image_path}"
 
-      - name: Update Clair vulnerability DB
-        if: hashFiles('matcher.db') == ''
-        # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
-        uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
-        with:
-          mode: update
-          db-file: matcher.db
+      - name: Extract OCI archive for scanning
+        env:
+          IMAGE_PATH: ${{ steps.ko-image.outputs.image-path }}
+        run: |
+          set -euo pipefail
+          # Trivy cannot read an OCI archive tarball directly, so unpack the
+          # layout and scan the directory instead.
+          mkdir -p "${RUNNER_TEMP}/image-scan"
+          tar -xf "${IMAGE_PATH}" -C "${RUNNER_TEMP}/image-scan"
 
-      - name: Run Clair scan
-        # Check latest: TAG=$(gh api repos/quay/clair-action/releases/latest --jq .tag_name); SHA=$(gh api repos/quay/clair-action/git/ref/tags/$TAG --jq .object.sha); echo "quay/clair-action@$SHA # $TAG"
-        uses: quay/clair-action@d24c74d7e3eaf5c9e3d6b0d566f6c1ac7d73f682 # v0.0.15
+      - name: Run Trivy image scan
+        # Check latest: TAG=$(gh api repos/aquasecurity/trivy-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/aquasecurity/trivy-action/git/ref/tags/$TAG); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$(jq -r .object.type <<<"$REF_JSON")" = tag ]; then SHA=$(gh api repos/aquasecurity/trivy-action/git/tags/$SHA --jq .object.sha); fi; echo "aquasecurity/trivy-action@$SHA # $TAG"
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          # Trivy treats a positional scan-ref as an image reference, so point
+          # TRIVY_INPUT at the extracted layout instead.
+          TRIVY_INPUT: ${{ runner.temp }}/image-scan
         with:
-          image-path: ${{ steps.ko-image.outputs.image-path }}
-          db-file: matcher.db
+          scan-type: image
+          scan-ref: .
+          version: v0.76.0
           format: sarif
-          output: clair-results.sarif
-          return-code: "1"
+          output: trivy-image-results.sarif
+          # Gate at CRITICAL until the dependency bumps tracked in the
+          # hardening backlog land; tighten to HIGH afterwards.
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          hide-progress: true
+          limit-severities-for-sarif: true
+          trivyignores: .trivyignore.yaml
 
-      - name: Upload Clair SARIF artifact
-        if: always() && hashFiles('clair-results.sarif') != ''
-        # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload Trivy image SARIF to GitHub
+        if: always() && hashFiles('trivy-image-results.sarif') != ''
+        # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
-          name: clair-results
-          path: clair-results.sarif
-
-      - name: Upload Clair SARIF to GitHub
-        if: always() && hashFiles('clair-results.sarif') != ''
-        # Check latest v4: TAG_SHA=$(gh api repos/github/codeql-action/git/ref/tags/v4 --jq .object.sha); SHA=$(gh api repos/github/codeql-action/git/tags/$TAG_SHA --jq .object.sha); echo "github/codeql-action/upload-sarif@$SHA # v4"
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
-        with:
-          sarif_file: clair-results.sarif
+          sarif_file: trivy-image-results.sarif
+          category: trivy-image-release
 
       - name: Post release preview as PR comment
         # Check latest: TAG=$(gh api repos/actions/github-script/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/github-script/git/ref/tags/$TAG --jq .object.sha); echo "actions/github-script@$SHA # $TAG"
@@ -259,3 +256,33 @@ jobs:
                 body,
               });
             }
+
+  iac:
+    name: Release Preview IaC Scan
+    if: contains(github.event.pull_request.labels.*.name, 'release-candidate')
+    permissions:
+      contents: read
+      packages: read # Allow the called workflow to read registry images.
+      security-events: write # Upload Trivy SARIF results to code scanning.
+    uses: ./.github/workflows/scan-trivy.yml
+    with:
+      scan-type: config
+      scan-ref: charts/azure-k8s-role-assigner
+      severity: HIGH,CRITICAL
+      exit-code: "1"
+      category: trivy-chart-release
+
+  tofu:
+    name: Release Preview IaC Scan (tofu)
+    if: contains(github.event.pull_request.labels.*.name, 'release-candidate')
+    permissions:
+      contents: read
+      packages: read # Allow the called workflow to read registry images.
+      security-events: write # Upload Trivy SARIF results to code scanning.
+    uses: ./.github/workflows/scan-trivy.yml
+    with:
+      scan-type: config
+      scan-ref: tofu
+      severity: HIGH,CRITICAL
+      exit-code: "1"
+      category: trivy-tofu-release

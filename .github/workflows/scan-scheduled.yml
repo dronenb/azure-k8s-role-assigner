@@ -1,0 +1,99 @@
+name: Scheduled Image Scan
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily so newly disclosed vulnerabilities in already published images
+    # are detected without waiting for the next release.
+    - cron: "43 4 * * *"
+
+permissions: {}
+
+concurrency:
+  group: scheduled-image-scan
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve images to scan
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read # List published container image tags.
+
+    outputs:
+      matrix: ${{ steps.images.outputs.matrix }}
+      empty: ${{ steps.images.outputs.empty }}
+
+    steps:
+      - name: Build scan matrix
+        id: images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          IMAGE: azure-k8s-role-assigner
+          RECENT_TAGS: "5"
+        run: |
+          set -euo pipefail
+
+          owner="${REPOSITORY%%/*}"
+
+          mapfile -t tags < <(gh api --paginate \
+            "users/${owner}/packages/container/${IMAGE}/versions" \
+            --jq '.[] | .metadata.container.tags[]?' 2>/dev/null \
+            | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+' \
+            | sort -uV \
+            | tail -n "${RECENT_TAGS}" || true)
+
+          entries=()
+          for tag in "${tags[@]}"; do
+            for platform in linux/amd64 linux/arm64; do
+              if [ -n "${tag}" ]; then
+                case "${platform}" in
+                  linux/amd64) suffix=amd64 ;;
+                  *) suffix=arm64 ;;
+                esac
+                entries+=("$(jq -cn \
+                  --arg tag "${tag}" \
+                  --arg platform "${platform}" \
+                  --arg suffix "${suffix}" \
+                  '{tag: $tag, platform: $platform, suffix: $suffix}')")
+              fi
+            done
+          done
+
+          if [ "${#entries[@]}" -eq 0 ]; then
+            echo "No published release tags found; nothing to scan."
+            echo 'matrix={"include":[]}' >> "${GITHUB_OUTPUT}"
+            echo "empty=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          matrix="$(printf '%s\n' "${entries[@]}" | jq -sc '{include: .}')"
+          {
+            echo "matrix=${matrix}"
+            echo "empty=false"
+          } >> "${GITHUB_OUTPUT}"
+          printf '%s\n' "${matrix}" | jq -r '.include[] | "\(.tag) \(.platform)"'
+
+  scan:
+    name: Scan ${{ matrix.tag }} (${{ matrix.platform }})
+    needs: resolve
+    if: needs.resolve.outputs.empty == 'false'
+    permissions:
+      contents: read
+      packages: read # Pull the published image layers.
+      security-events: write # Upload Trivy SARIF results to code scanning.
+    uses: ./.github/workflows/scan-trivy.yml
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}
+    with:
+      scan-type: image
+      scan-ref: ghcr.io/dronenb/azure-k8s-role-assigner:${{ matrix.tag }}
+      severity: HIGH,CRITICAL
+      exit-code: "0"
+      ignore-unfixed: true
+      category: trivy-image-scheduled-${{ matrix.suffix }}
+      platform: ${{ matrix.platform }}
