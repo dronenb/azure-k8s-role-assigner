@@ -844,19 +844,29 @@ tasks:
     preconditions:
       - sh: command -v npx >/dev/null
         msg: npx is required (install Node.js)
+      - sh: command -v jq >/dev/null
+        msg: jq is required
       - sh: '[ -n "$(gh auth token 2>/dev/null)" ]'
         msg: gh must be authenticated (run `gh auth login`)
     cmds:
       - |
         set -euo pipefail
-        # The config schedules updates for Monday mornings. Override the
-        # schedule so a local run looks up updates immediately.
+        # renovate.json schedules updates for Monday mornings, and a repository
+        # config always overrides RENOVATE_CONFIG, so setting the schedule in the
+        # environment has no effect. Write a temporary copy with the schedule
+        # removed instead; without this Renovate skips every branch as
+        # "not-scheduled" and opens nothing.
+        # Renovate picks the parser from the file extension, so keep .json.
+        cfgdir="$(mktemp -d)"
+        trap 'rm -rf "${cfgdir}"' EXIT
+        cfg="${cfgdir}/renovate-local.json"
+        jq 'del(.schedule)' renovate.json > "${cfg}"
+
         GITHUB_TOKEN="$(gh auth token)" \
         RENOVATE_TOKEN="$(gh auth token)" \
         RENOVATE_PLATFORM=github \
         RENOVATE_REPOSITORIES="{{.RENOVATE_REPO | default "dronenb/azure-k8s-role-assigner"}}" \
-        RENOVATE_CONFIG_FILE=renovate.json \
-        RENOVATE_CONFIG='{"schedule":["at any time"]}' \
+        RENOVATE_CONFIG_FILE="${cfg}" \
         RENOVATE_GIT_AUTHOR="dronenb <dronenb@users.noreply.github.com>" \
         RENOVATE_REPOSITORY_CACHE=disabled \
         RENOVATE_DRY_RUN=lookup \
@@ -868,18 +878,27 @@ tasks:
     preconditions:
       - sh: command -v npx >/dev/null
         msg: npx is required (install Node.js)
+      - sh: command -v jq >/dev/null
+        msg: jq is required
       - sh: '[ -n "$(gh auth token 2>/dev/null)" ]'
         msg: gh must be authenticated (run `gh auth login`)
     prompt: This creates branches and pull requests in the repository. Continue?
     cmds:
       - |
         set -euo pipefail
+        # See deps:check. The schedule must be removed from the config file
+        # itself, not overridden via the environment.
+        # Renovate picks the parser from the file extension, so keep .json.
+        cfgdir="$(mktemp -d)"
+        trap 'rm -rf "${cfgdir}"' EXIT
+        cfg="${cfgdir}/renovate-local.json"
+        jq 'del(.schedule)' renovate.json > "${cfg}"
+
         GITHUB_TOKEN="$(gh auth token)" \
         RENOVATE_TOKEN="$(gh auth token)" \
         RENOVATE_PLATFORM=github \
         RENOVATE_REPOSITORIES="{{.RENOVATE_REPO | default "dronenb/azure-k8s-role-assigner"}}" \
-        RENOVATE_CONFIG_FILE=renovate.json \
-        RENOVATE_CONFIG='{"schedule":["at any time"]}' \
+        RENOVATE_CONFIG_FILE="${cfg}" \
         RENOVATE_GIT_AUTHOR="dronenb <dronenb@users.noreply.github.com>" \
         RENOVATE_REPOSITORY_CACHE=disabled \
         RENOVATE_DRY_RUN=false \
