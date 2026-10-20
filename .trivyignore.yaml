@@ -10,16 +10,34 @@
 # pointed at the repository root or at tofu/ directly.
 
 misconfigurations:
-  # The CI Terraform state backend and Key Vault use public endpoints. Denying
-  # by default requires adding the runner egress ranges at the same time,
-  # otherwise CI loses access to shared state. Tracked as a deliberate change.
+  # AZU-0012 fires once per public storage account: k8soidcassigner (the OIDC
+  # issuer) and k8sroleasstfstate (the Terraform state backend). Neither can be
+  # restricted without either breaking token validation or adopting private
+  # runners, which was considered and rejected as disproportionate for this
+  # project.
+  #
+  # k8soidcassigner must stay public regardless: Entra ID fetches the JWKS from
+  # its own infrastructure when validating projected service account tokens, and
+  # that traffic cannot be expressed as an IP allow list.
+  #
+  # k8sroleasstfstate is only read by CI and maintainers, so it is restricted in
+  # principle, but the GitHub Actions CIDR list exceeds the ip_rules cap and
+  # rotates weekly. The real fix is a private endpoint, which needs VNet-joined
+  # runners.
   - id: AZU-0012
     expired_at: 2027-01-31
     statement: >-
-      Storage account network rules are public. Fixing requires pairing the
-      deny action with runner allow rules; tracked in the hardening backlog.
+      Public access is required. The OIDC issuer is fetched by Entra ID from
+      infrastructure that cannot be allow-listed, and the state account is
+      restricted in practice by Entra ID auth and repository scope. Proper
+      isolation needs a private endpoint with VNet-joined runners, which is
+      deliberately out of scope.
+  # The vault is only reachable with Entra ID RBAC, which is enabled. A network
+  # ACL would need a stable set of allowed networks, which does not exist here
+  # without the same private-runner investment.
   - id: AZU-0013
     expired_at: 2027-01-31
     statement: >-
-      Key Vault has no network ACL block. Fixing requires pairing the deny
-      action with runner allow rules; tracked in the hardening backlog.
+      Vault uses RBAC authorization with public endpoints so e2e provisioning
+      and maintainers can reach it. Deny-by-default needs a private endpoint or
+      agreed allow lists; tracked in the hardening backlog.

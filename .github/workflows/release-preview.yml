@@ -206,9 +206,7 @@ jobs:
           version: v0.76.0
           format: sarif
           output: trivy-image-results.sarif
-          # Gate at CRITICAL until the dependency bumps tracked in the
-          # hardening backlog land; tighten to HIGH afterwards.
-          severity: CRITICAL
+          severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
           hide-progress: true

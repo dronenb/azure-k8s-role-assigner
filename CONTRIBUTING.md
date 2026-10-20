@@ -179,7 +179,7 @@ Scanning uses [Trivy](https://trivy.dev) through the reusable workflow
 | Scan | Where | Enforcement |
 | --- | --- | --- |
 | Container image | `tests.yml` on pull requests | Report only |
-| Container image | `release-preview.yml` on release candidates | Blocks at `CRITICAL` |
+| Container image | `release-preview.yml` on release candidates | Blocks at `HIGH` |
 | Container image | `scan-scheduled.yml` daily | Report only |
 | Helm chart | `tests.yml` and `release-preview.yml` | Report on PRs, blocks on release |
 | OpenTofu / IaC | `tests.yml` and `release-preview.yml` | Report on PRs, blocks on release |

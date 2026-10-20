@@ -64,9 +64,9 @@ It does three things:
 - runs `goreleaser release --clean --snapshot --skip=publish`
 - scans the built image, the Helm chart, and the OpenTofu configuration with Trivy
 
-The Trivy scans act as release gates. The image must have no fixable `CRITICAL`
-vulnerabilities, and the chart and infrastructure as code must have no
-`HIGH` or `CRITICAL` misconfigurations. A failing scan blocks the release
+The Trivy scans act as release gates. The image must have no fixable `HIGH` or
+`CRITICAL` vulnerabilities, and the chart and infrastructure as code must have
+no `HIGH` or `CRITICAL` misconfigurations. A failing scan blocks the release
 preview, so fix the finding or record a justified suppression in
 `.trivyignore.yaml` before merging.
 
