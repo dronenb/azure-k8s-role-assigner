@@ -134,13 +134,16 @@ resource "random_password" "e2e_test_user" {
 
 # --- Key Vault ---
 
+# Purge protection cannot be disabled once enabled in Azure. The vault holds
+# the Kubernetes service account signing key and already sets prevent_destroy,
+# so deletion should not be recoverable either.
 resource "azurerm_key_vault" "ci" {
   name                       = "kv-k8sroleassigner"
   location                   = azurerm_resource_group.ci.location
   resource_group_name        = azurerm_resource_group.ci.name
   tenant_id                  = data.azuread_client_config.current.tenant_id
   sku_name                   = "standard"
-  purge_protection_enabled   = false
+  purge_protection_enabled   = true
   soft_delete_retention_days = 7
   rbac_authorization_enabled = true
 
@@ -165,6 +168,7 @@ resource "time_sleep" "wait_for_kv_rbac" {
 resource "azurerm_key_vault_secret" "sa_signing_key" {
   name         = "sa-signing-key"
   value        = tls_private_key.sa_signing.private_key_pem
+  content_type = "application/x-pem-file"
   key_vault_id = azurerm_key_vault.ci.id
 
   depends_on = [time_sleep.wait_for_kv_rbac]
@@ -177,6 +181,7 @@ resource "azurerm_key_vault_secret" "sa_signing_key" {
 resource "azurerm_key_vault_secret" "e2e_test_user_password" {
   name         = "e2e-test-user-password"
   value        = random_password.e2e_test_user.result
+  content_type = "text/plain"
   key_vault_id = azurerm_key_vault.ci.id
 
   depends_on = [time_sleep.wait_for_kv_rbac]
