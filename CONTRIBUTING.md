@@ -12,6 +12,7 @@
 - [kind](https://kind.sigs.k8s.io/) (v0.32.0+)
 - [Podman](https://podman.io/) (for kind driver)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/) (for e2e tests)
+- [Node.js](https://nodejs.org/) (for `task deps:*` and MegaLinter via `npx`)
 
 ## Development
 
@@ -161,6 +162,35 @@ See [`tofu/README.md`](tofu/README.md) for details.
 
 See [`RELEASING.md`](RELEASING.md) for the PR-based release process, including the one-command `task release:pr` flow.
 
+## Dependency Updates
+
+Dependencies are updated by [Renovate](https://docs.renovatebot.com/), configured
+in [`renovate.json`](renovate.json). The app opens grouped pull requests for
+GitHub Actions, Go modules, OpenTofu providers, container images, and pinned CLI
+tools. Nothing is automerged: `main` requires signed commits and linear history,
+and with no required status checks there is nothing to gate a bad bump.
+
+Renovate is scheduled for Monday mornings, so it will not react immediately to a
+new upstream release. To work on updates without waiting:
+
+```bash
+task deps:validate   # check renovate.json is valid
+task deps:check      # dry run: list what would be updated, change nothing
+task deps:update     # run locally and open real branches and pull requests
+```
+
+`task deps:check` and `task deps:update` override the Monday schedule so the
+lookup happens immediately. Both need `npx` (Node.js) and an authenticated `gh`
+CLI. `deps:update` uses your token, so the resulting commits are authored and
+signed by you rather than by the Renovate bot; prefer letting the app open PRs
+in normal use and keep the local run for when you need updates right away.
+
+Adding a new pinned tool means updating the regex managers too. Any version
+installed with `curl` in a workflow (git-cliff, helm, ko, kind) is tracked by a
+`customManager` entry, and a pin without a matching manager silently stops being
+updated. The ko base image is pinned in both `.ko.yaml` and `.goreleaser.yml`,
+and both need to stay in sync.
+
 ## Security
 
 - All GitHub Actions are pinned by full SHA with version comments
@@ -176,13 +206,13 @@ See [`RELEASING.md`](RELEASING.md) for the PR-based release process, including t
 Scanning uses [Trivy](https://trivy.dev) through the reusable workflow
 `.github/workflows/scan-trivy.yml`.
 
-| Scan | Where | Enforcement |
-| --- | --- | --- |
-| Container image | `tests.yml` on pull requests | Report only |
-| Container image | `release-preview.yml` on release candidates | Blocks at `HIGH` |
-| Container image | `scan-scheduled.yml` daily | Report only |
-| Helm chart | `tests.yml` and `release-preview.yml` | Report on PRs, blocks on release |
-| OpenTofu / IaC | `tests.yml` and `release-preview.yml` | Report on PRs, blocks on release |
+| Scan            | Where                                       | Enforcement                      |
+| --------------- | ------------------------------------------- | -------------------------------- |
+| Container image | `tests.yml` on pull requests                | Report only                      |
+| Container image | `release-preview.yml` on release candidates | Blocks at `HIGH`                 |
+| Container image | `scan-scheduled.yml` daily                  | Report only                      |
+| Helm chart      | `tests.yml` and `release-preview.yml`       | Report on PRs, blocks on release |
+| OpenTofu / IaC  | `tests.yml` and `release-preview.yml`       | Report on PRs, blocks on release |
 
 Notes for contributors:
 

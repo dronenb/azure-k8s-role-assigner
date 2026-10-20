@@ -837,6 +837,63 @@ tasks:
       - trivy config charts/azure-k8s-role-assigner --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml
       - trivy config tofu --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml
 
+  # --- Dependency Updates ---
+
+  deps:check:
+    desc: Dry-run Renovate to see which dependencies have updates (no changes made).
+    preconditions:
+      - sh: command -v npx >/dev/null
+        msg: npx is required (install Node.js)
+      - sh: '[ -n "$(gh auth token 2>/dev/null)" ]'
+        msg: gh must be authenticated (run `gh auth login`)
+    cmds:
+      - |
+        set -euo pipefail
+        # The config schedules updates for Monday mornings. Override the
+        # schedule so a local run looks up updates immediately.
+        GITHUB_TOKEN="$(gh auth token)" \
+        RENOVATE_TOKEN="$(gh auth token)" \
+        RENOVATE_PLATFORM=github \
+        RENOVATE_REPOSITORIES="{{.RENOVATE_REPO | default "dronenb/azure-k8s-role-assigner"}}" \
+        RENOVATE_CONFIG_FILE=renovate.json \
+        RENOVATE_CONFIG='{"schedule":["at any time"]}' \
+        RENOVATE_GIT_AUTHOR="dronenb <dronenb@users.noreply.github.com>" \
+        RENOVATE_REPOSITORY_CACHE=disabled \
+        RENOVATE_DRY_RUN=lookup \
+        LOG_LEVEL=info \
+        npx --yes --package renovate renovate
+
+  deps:update:
+    desc: Run Renovate locally and open real update branches and PRs.
+    preconditions:
+      - sh: command -v npx >/dev/null
+        msg: npx is required (install Node.js)
+      - sh: '[ -n "$(gh auth token 2>/dev/null)" ]'
+        msg: gh must be authenticated (run `gh auth login`)
+    prompt: This creates branches and pull requests in the repository. Continue?
+    cmds:
+      - |
+        set -euo pipefail
+        GITHUB_TOKEN="$(gh auth token)" \
+        RENOVATE_TOKEN="$(gh auth token)" \
+        RENOVATE_PLATFORM=github \
+        RENOVATE_REPOSITORIES="{{.RENOVATE_REPO | default "dronenb/azure-k8s-role-assigner"}}" \
+        RENOVATE_CONFIG_FILE=renovate.json \
+        RENOVATE_CONFIG='{"schedule":["at any time"]}' \
+        RENOVATE_GIT_AUTHOR="dronenb <dronenb@users.noreply.github.com>" \
+        RENOVATE_REPOSITORY_CACHE=disabled \
+        RENOVATE_DRY_RUN=false \
+        LOG_LEVEL=info \
+        npx --yes --package renovate renovate
+
+  deps:validate:
+    desc: Validate renovate.json with Renovate's config validator.
+    preconditions:
+      - sh: command -v npx >/dev/null
+        msg: npx is required (install Node.js)
+    cmds:
+      - npx --yes --package renovate renovate-config-validator renovate.json
+
   changelog:
     desc: Generate changelog using git-cliff.
     cmds:
