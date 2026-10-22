@@ -10,7 +10,7 @@ terraform {
     # Check latest: curl -s https://registry.terraform.io/v1/providers/hashicorp/azurerm | jq -r .version
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.77"
+      version = "~> 5.0"
     }
     # Check latest: curl -s https://registry.terraform.io/v1/providers/hashicorp/external | jq -r .version
     external = {
