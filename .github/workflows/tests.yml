@@ -148,7 +148,7 @@ jobs:
       - name: Install ko
         # Check latest: gh api repos/ko-build/ko/releases/latest --jq .tag_name
         run: |
-          curl -sSfL https://github.com/ko-build/ko/releases/download/v0.18.1/ko_0.18.1_Linux_x86_64.tar.gz | tar xzf - -C /usr/local/bin ko
+          curl -sSfL https://github.com/ko-build/ko/releases/download/v0.19.1/ko_0.19.1_Linux_x86_64.tar.gz | tar xzf - -C /usr/local/bin ko
 
       - name: Build image
         run: task build-image IMG_TARBALL=image.tar
@@ -254,12 +254,12 @@ jobs:
       - name: Install ko
         # Check latest: gh api repos/ko-build/ko/releases/latest --jq .tag_name
         run: |
-          curl -sSfL https://github.com/ko-build/ko/releases/download/v0.18.1/ko_0.18.1_Linux_x86_64.tar.gz | tar xzf - -C /usr/local/bin ko
+          curl -sSfL https://github.com/ko-build/ko/releases/download/v0.19.1/ko_0.19.1_Linux_x86_64.tar.gz | tar xzf - -C /usr/local/bin ko
 
       - name: Install kind
         # Check latest: gh api repos/kubernetes-sigs/kind/releases/latest --jq .tag_name
         run: |
-          curl -sSfLo ./kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          curl -sSfLo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
 
@@ -281,7 +281,7 @@ jobs:
 
       - name: Install Helm
         run: |
-          curl -sSfL https://get.helm.sh/helm-v4.2.3-linux-amd64.tar.gz | tar xzf - -C /tmp
+          curl -sSfL https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz | tar xzf - -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
 
       - name: Run e2e tests
