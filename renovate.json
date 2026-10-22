@@ -66,9 +66,15 @@
       "groupName": "container images"
     },
     {
-      "description": "Trivy and the scanner version pinned in workflows.",
+      "description": "Trivy and the scanner version pinned in workflows. pinDigests is off because these are the 'version:' inputs of the action, which name a tool release rather than a container image, so there is no digest to pin. Leaving pinDigests on makes Renovate attempt a digest pin, fail re-extraction with 'Digest is not updated', and abort the branch with 'update failure'.",
       "matchPackageNames": ["aquasecurity/trivy"],
+      "pinDigests": false,
       "groupName": "trivy"
+    },
+    {
+      "description": "GoReleaser's 'version:' input under goreleaser-action picks a GoReleaser release, not a container image. It has no digest, so the global pinDigests setting makes Renovate attempt a digest pin that cannot succeed, failing the branch with 'update failure'. The action itself is still digest-pinned by the github-actions manager.",
+      "matchPackageNames": ["goreleaser/goreleaser"],
+      "pinDigests": false
     },
     {
       "description": "MegaLinter is pinned in three places that must move together: the image version (MEGALINTER_VERSION), the image digest (MEGALINTER_IMAGE_DIGEST) and the npm runner (MEGALINTER_RUNNER_VERSION) that .github/scripts/mega-linter-runner executes. Grouping them stops the version and digest drifting apart: a version-only bump changes the reported label while the pinned digest still runs the old image, because MEGALINTER_IMAGE is built from the digest and the runner's --image overrides --release. separateMultipleMajor is off so a vN bump lands in one PR instead of splitting across branches. pinDigests is off because the GitHub release version has no image digest to add. This rule must stay after the cli tools and container images rules so it overrides their grouping.",
