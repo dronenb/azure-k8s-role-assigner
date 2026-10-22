@@ -30,6 +30,12 @@
       "matchDepNames": ["!go", "!toolchain"]
     },
     {
+      "description": "k8s.io/kube-openapi uses pseudo-versions, so Renovate cannot tell that newer snapshots switch major versions of shared types. Bumping it independently of k8s.io/* breaks the build: k8s v0.37.x pins structured-merge-diff/v6, while newer kube-openapi snapshots moved to /v7. Move this in lockstep with the k8s.io/* minor, not on its own.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["k8s.io/kube-openapi"],
+      "allowedVersions": "v0.0.0-20260721132016-d427ff9ee9ad"
+    },
+    {
       "description": "Toolchain and language version bumps are chores, not fixes.",
       "matchDepNames": ["go", "toolchain"],
       "matchManagers": ["gomod"],
@@ -144,6 +150,17 @@
       "datasourceTemplate": "docker",
       "autoReplaceStringTemplate": "base_image: {{depName}}{{#if newTag}}:{{newTag}}{{/if}}@sha256:{{newDigest}}",
       "managerFilePatterns": ["/^\\.goreleaser\\.ya?ml$/"]
+    },
+    {
+      "customType": "regex",
+      "description": "Task CLI version passed to go-task/setup-task. Pinned exactly rather than as 3.x, because a floating range makes the action resolve the newest release through the GitHub API at runtime and fail with 'unable to get latest version' when that call is rate limited.",
+      "matchStrings": [
+        "version: (?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\n"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "go-task/task",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"]
     },
     {
       "customType": "regex",

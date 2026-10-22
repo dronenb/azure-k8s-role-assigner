@@ -47,10 +47,15 @@ jobs:
           cache: false
 
       - name: Install Task
+        # The task version below is pinned exactly. A floating "3.x" makes
+        # setup-task resolve the newest 3.x release through the GitHub API at
+        # runtime, which fails the job with "unable to get latest version" when
+        # that lookup is rate limited. Renovate tracks this pin via a
+        # customManager in renovate.json, so it still receives updates.
         # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
         uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
         with:
-          version: 3.x
+          version: 3.54.0
 
       - name: Run unit tests (fmt, vet, test with coverage)
         run: task test
@@ -98,8 +103,36 @@ jobs:
           output-file: govulncheck.sarif
           repo-checkout: false
 
+      - name: Validate govulncheck SARIF
+        id: sarif
+        if: always()
+        # govulncheck writes the SARIF file as it streams, so a mid-run failure
+        # leaves a truncated file. upload-sarif rejects that with a confusing
+        # "Unexpected end of JSON input" error, which hides the real failure.
+        # Skip the upload when the report is empty or has no results, but still
+        # fail loudly on malformed JSON.
+        run: |
+          set -euo pipefail
+          if [[ ! -f govulncheck.sarif ]]; then
+            echo "usable=false" >> "${GITHUB_OUTPUT}"
+            echo "No govulncheck.sarif produced; skipping SARIF upload."
+            exit 0
+          fi
+          if ! jq -e . govulncheck.sarif >/dev/null 2>&1; then
+            echo "::error::govulncheck.sarif exists but is not valid JSON."
+            exit 1
+          fi
+          results=$(jq '[.runs[]?.results // [] | length] | add // 0' govulncheck.sarif)
+          if [[ "${results}" -gt 0 ]]; then
+            echo "usable=true" >> "${GITHUB_OUTPUT}"
+            echo "SARIF contains ${results} result(s)."
+          else
+            echo "usable=false" >> "${GITHUB_OUTPUT}"
+            echo "SARIF contains no results; skipping upload."
+          fi
+
       - name: Upload govulncheck SARIF artifact
-        if: always() && hashFiles('govulncheck.sarif') != ''
+        if: always() && steps.sarif.outputs.usable == 'true'
         # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -107,7 +140,7 @@ jobs:
           path: govulncheck.sarif
 
       - name: Upload govulncheck SARIF to GitHub
-        if: always() && hashFiles('govulncheck.sarif') != ''
+        if: always() && steps.sarif.outputs.usable == 'true'
         # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
         uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
@@ -140,10 +173,15 @@ jobs:
           cache: false
 
       - name: Install Task
+        # The task version below is pinned exactly. A floating "3.x" makes
+        # setup-task resolve the newest 3.x release through the GitHub API at
+        # runtime, which fails the job with "unable to get latest version" when
+        # that lookup is rate limited. Renovate tracks this pin via a
+        # customManager in renovate.json, so it still receives updates.
         # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
         uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
         with:
-          version: 3.x
+          version: 3.54.0
 
       - name: Install ko
         # Check latest: gh api repos/ko-build/ko/releases/latest --jq .tag_name
@@ -246,10 +284,15 @@ jobs:
           cache: false
 
       - name: Install Task
+        # The task version below is pinned exactly. A floating "3.x" makes
+        # setup-task resolve the newest 3.x release through the GitHub API at
+        # runtime, which fails the job with "unable to get latest version" when
+        # that lookup is rate limited. Renovate tracks this pin via a
+        # customManager in renovate.json, so it still receives updates.
         # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
         uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
         with:
-          version: 3.x
+          version: 3.54.0
 
       - name: Install ko
         # Check latest: gh api repos/ko-build/ko/releases/latest --jq .tag_name
