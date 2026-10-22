@@ -53,7 +53,7 @@ jobs:
         # that lookup is rate limited. Renovate tracks this pin via a
         # customManager in renovate.json, so it still receives updates.
         # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
-        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
           version: 3.54.0
 
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload coverage report
         # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: coverage
@@ -134,7 +134,7 @@ jobs:
       - name: Upload govulncheck SARIF artifact
         if: always() && steps.sarif.outputs.usable == 'true'
         # Check latest: TAG=$(gh api repos/actions/upload-artifact/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/actions/upload-artifact/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/actions/upload-artifact/git/tags/$SHA --jq .object.sha); fi; echo "actions/upload-artifact@$SHA # $TAG"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: govulncheck-sarif
           path: govulncheck.sarif
@@ -142,7 +142,7 @@ jobs:
       - name: Upload govulncheck SARIF to GitHub
         if: always() && steps.sarif.outputs.usable == 'true'
         # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: govulncheck.sarif
 
@@ -179,7 +179,7 @@ jobs:
         # that lookup is rate limited. Renovate tracks this pin via a
         # customManager in renovate.json, so it still receives updates.
         # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
-        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
           version: 3.54.0
 
@@ -223,7 +223,7 @@ jobs:
       - name: Upload Trivy image SARIF to GitHub
         if: always() && hashFiles('trivy-image-results.sarif') != ''
         # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: trivy-image-results.sarif
           category: trivy-image-pr
@@ -290,7 +290,7 @@ jobs:
         # that lookup is rate limited. Renovate tracks this pin via a
         # customManager in renovate.json, so it still receives updates.
         # Check latest: TAG=$(gh api repos/go-task/setup-task/releases/latest --jq .tag_name); SHA=$(gh api repos/go-task/setup-task/git/ref/tags/$TAG --jq .object.sha); echo "go-task/setup-task@$SHA # $TAG"
-        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
           version: 3.54.0
 
@@ -308,11 +308,11 @@ jobs:
 
       - name: Set up OpenTofu
         # Check latest: TAG=$(gh api repos/opentofu/setup-opentofu/releases/latest --jq .tag_name); SHA=$(gh api repos/opentofu/setup-opentofu/git/ref/tags/$TAG --jq .object.sha); echo "opentofu/setup-opentofu@$SHA # $TAG"
-        uses: opentofu/setup-opentofu@847eaa4afeb791b06daa46e8eafa8b1b68d7cfb4 # v2.0.1
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
 
       - name: Login to Azure
         # Check latest: TAG=$(gh api repos/azure/login/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/login/git/ref/tags/$TAG --jq .object.sha); echo "azure/login@$SHA # $TAG"
-        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -320,7 +320,7 @@ jobs:
 
       - name: Set up kubectl
         # Check latest: TAG=$(gh api repos/azure/setup-kubectl/releases/latest --jq .tag_name); SHA=$(gh api repos/azure/setup-kubectl/git/ref/tags/$TAG --jq .object.sha); echo "azure/setup-kubectl@$SHA # $TAG"
-        uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+        uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v5.2.0
 
       - name: Install Helm
         run: |
