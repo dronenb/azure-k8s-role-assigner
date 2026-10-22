@@ -846,6 +846,8 @@ tasks:
         msg: npx is required (install Node.js)
       - sh: command -v jq >/dev/null
         msg: jq is required
+      - sh: '[ -n "$(git config user.name)" ] && [ -n "$(git config user.email)" ]'
+        msg: git user.name and user.email must be set (run `git config user.name "Your Name"` and `git config user.email "you@example.com"`)
       - sh: '[ -n "$(gh auth token 2>/dev/null)" ]'
         msg: gh must be authenticated (run `gh auth login`)
     cmds:
@@ -862,12 +864,18 @@ tasks:
         cfg="${cfgdir}/renovate-local.json"
         jq 'del(.schedule)' renovate.json > "${cfg}"
 
+        # Derive the commit identity from git config instead of hard-coding it.
+        # This must match the author GitHub records for platform commits, because
+        # the DCO check requires the Signed-off-by name and email to equal the
+        # commit author's.
+        git_author="$(git config user.name) <$(git config user.email)>"
+
         GITHUB_TOKEN="$(gh auth token)" \
         RENOVATE_TOKEN="$(gh auth token)" \
         RENOVATE_PLATFORM=github \
         RENOVATE_REPOSITORIES="{{.RENOVATE_REPO | default "dronenb/azure-k8s-role-assigner"}}" \
         RENOVATE_CONFIG_FILE="${cfg}" \
-        RENOVATE_GIT_AUTHOR="dronenb <dronenb@users.noreply.github.com>" \
+        RENOVATE_GIT_AUTHOR="${git_author}" \
         RENOVATE_REPOSITORY_CACHE=disabled \
         RENOVATE_DRY_RUN=lookup \
         LOG_LEVEL=info \
@@ -880,6 +888,8 @@ tasks:
         msg: npx is required (install Node.js)
       - sh: command -v jq >/dev/null
         msg: jq is required
+      - sh: '[ -n "$(git config user.name)" ] && [ -n "$(git config user.email)" ]'
+        msg: git user.name and user.email must be set (run `git config user.name "Your Name"` and `git config user.email "you@example.com"`)
       - sh: '[ -n "$(gh auth token 2>/dev/null)" ]'
         msg: gh must be authenticated (run `gh auth login`)
     prompt: This creates branches and pull requests in the repository. Continue?
@@ -894,14 +904,17 @@ tasks:
         cfg="${cfgdir}/renovate-local.json"
         jq 'del(.schedule)' renovate.json > "${cfg}"
 
+        # See deps:check. The Signed-off-by trailer has to match the commit
+        # author exactly, so take both from git config.
+        git_author="$(git config user.name) <$(git config user.email)>"
+
         GITHUB_TOKEN="$(gh auth token)" \
         RENOVATE_TOKEN="$(gh auth token)" \
         RENOVATE_PLATFORM=github \
         RENOVATE_REPOSITORIES="{{.RENOVATE_REPO | default "dronenb/azure-k8s-role-assigner"}}" \
         RENOVATE_CONFIG_FILE="${cfg}" \
-        RENOVATE_GIT_AUTHOR="dronenb <dronenb@users.noreply.github.com>" \
+        RENOVATE_GIT_AUTHOR="${git_author}" \
         RENOVATE_REPOSITORY_CACHE=disabled \
-        RENOVATE_DRY_RUN=false \
         LOG_LEVEL=info \
         npx --yes --package renovate renovate
 

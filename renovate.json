@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":dependencyDashboard"],
+  "extends": ["config:recommended", ":dependencyDashboard", ":gitSignOff"],
   "timezone": "UTC",
   "rebaseWhen": "behind-base-branch",
   "platformCommit": "enabled",
@@ -79,7 +79,7 @@
       ],
       "groupName": "megalinter",
       "groupSlug": "megalinter",
-      "branchName": "renovate/megalinter",
+      "separateMajorMinor": false,
       "separateMultipleMajor": false,
       "pinDigests": false
     }
