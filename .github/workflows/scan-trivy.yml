@@ -95,7 +95,7 @@ jobs:
           scan-ref: ${{ inputs.scan-ref }}
           # Pin the scanner binary explicitly; the action otherwise installs a
           # bundled default version.
-          version: v0.76.0
+          version: v0.76.1
           format: sarif
           output: trivy-results.sarif
           severity: ${{ inputs.severity }}

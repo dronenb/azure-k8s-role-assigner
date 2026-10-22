@@ -203,7 +203,7 @@ jobs:
         with:
           scan-type: image
           scan-ref: .
-          version: v0.76.0
+          version: v0.76.1
           format: sarif
           output: trivy-image-results.sarif
           severity: HIGH,CRITICAL
