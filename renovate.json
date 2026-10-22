@@ -71,9 +71,16 @@
       "groupName": "trivy"
     },
     {
-      "description": "MegaLinter's release version comes from GitHub releases, which have no image digest. pinDigests would make the lookup fail.",
-      "matchPackageNames": ["oxsecurity/megalinter"],
-      "matchDatasources": ["github-releases"],
+      "description": "MegaLinter is pinned in three places that must move together: the image version (MEGALINTER_VERSION), the image digest (MEGALINTER_IMAGE_DIGEST) and the npm runner (MEGALINTER_RUNNER_VERSION) that .github/scripts/mega-linter-runner executes. Grouping them stops the version and digest drifting apart: a version-only bump changes the reported label while the pinned digest still runs the old image, because MEGALINTER_IMAGE is built from the digest and the runner's --image overrides --release. separateMultipleMajor is off so a vN bump lands in one PR instead of splitting across branches. pinDigests is off because the GitHub release version has no image digest to add. This rule must stay after the cli tools and container images rules so it overrides their grouping.",
+      "matchPackageNames": [
+        "oxsecurity/megalinter",
+        "ghcr.io/oxsecurity/megalinter",
+        "mega-linter-runner"
+      ],
+      "groupName": "megalinter",
+      "groupSlug": "megalinter",
+      "branchName": "renovate/megalinter",
+      "separateMultipleMajor": false,
       "pinDigests": false
     }
   ],
@@ -181,6 +188,16 @@
       ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "oxsecurity/megalinter"
+    },
+    {
+      "customType": "regex",
+      "description": "MegaLinter runner version, used as 'npx mega-linter-runner@<version>'. It ships in lockstep with the MegaLinter release but lives on npm, not GitHub releases, so it needs its own datasource and would otherwise never be updated.",
+      "managerFilePatterns": ["/^\\.github/megalinter-image\\.env$/"],
+      "matchStrings": [
+        "MEGALINTER_RUNNER_VERSION=\"\\$\\{MEGALINTER_RUNNER_VERSION:-(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\}\""
+      ],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "mega-linter-runner"
     },
     {
       "customType": "regex",
