@@ -134,10 +134,10 @@ jobs:
 
       - name: GoReleaser dry run
         # Check latest: TAG=$(gh api repos/goreleaser/goreleaser-action/releases/latest --jq .tag_name); SHA=$(gh api repos/goreleaser/goreleaser-action/git/ref/tags/$TAG --jq .object.sha); echo "goreleaser/goreleaser-action@$SHA # $TAG"
-        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: v2.17.0
+          version: v2.18.3
           args: release --clean --snapshot --skip=publish,sign
         env:
           GORELEASER_SNAPSHOT_VERSION: ${{ steps.version.outputs.image-version }}
@@ -216,7 +216,7 @@ jobs:
       - name: Upload Trivy image SARIF to GitHub
         if: always() && hashFiles('trivy-image-results.sarif') != ''
         # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
-        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           sarif_file: trivy-image-results.sarif
           category: trivy-image-release
