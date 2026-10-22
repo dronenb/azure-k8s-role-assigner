@@ -140,22 +140,22 @@
     },
     {
       "customType": "regex",
-      "description": "ko base image digest in .ko.yaml. GoReleaser sets the same value in .goreleaser.yml, but that one is pinned by digest too and updated separately below.",
+      "description": "ko base image digest in .ko.yaml. GoReleaser sets the same value in .goreleaser.yml, but that one is pinned by digest too and updated separately below. currentDigest must capture the 'sha256:' prefix because the docker datasource reports newDigest with that prefix; capturing the bare hex and re-adding 'sha256:' in the template yields 'sha256:sha256:...' and Renovate then fails the branch with 'update failure'.",
       "matchStrings": [
-        "defaultBaseImage:\\s*(?<depName>[^@\\s:]+(?:/[^@\\s:]+)*)(?::(?<currentTag>[^@\\s]+))?@sha256:(?<currentDigest>[a-f0-9]{64})"
+        "defaultBaseImage:\\s*(?<depName>[^@\\s:]+(?:/[^@\\s:]+)*)(?::(?<currentTag>[^@\\s]+))?@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "datasourceTemplate": "docker",
-      "autoReplaceStringTemplate": "defaultBaseImage: {{depName}}{{#if newTag}}:{{newTag}}{{/if}}@sha256:{{newDigest}}",
+      "autoReplaceStringTemplate": "defaultBaseImage: {{depName}}{{#if newTag}}:{{newTag}}{{/if}}@{{newDigest}}",
       "managerFilePatterns": ["/^\\.ko\\.yaml$/"]
     },
     {
       "customType": "regex",
-      "description": "kos base_image digest in .goreleaser.yml, which must stay in sync with .ko.yaml.",
+      "description": "kos base_image digest in .goreleaser.yml, which must stay in sync with .ko.yaml. currentDigest captures the 'sha256:' prefix so it matches the docker datasource's newDigest format and re-extraction still succeeds after replacement.",
       "matchStrings": [
-        "base_image:\\s*(?<depName>[^@\\s:]+(?:/[^@\\s:]+)*)(?::(?<currentTag>[^@\\s]+))?@sha256:(?<currentDigest>[a-f0-9]{64})"
+        "base_image:\\s*(?<depName>[^@\\s:]+(?:/[^@\\s:]+)*)(?::(?<currentTag>[^@\\s]+))?@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
       "datasourceTemplate": "docker",
-      "autoReplaceStringTemplate": "base_image: {{depName}}{{#if newTag}}:{{newTag}}{{/if}}@sha256:{{newDigest}}",
+      "autoReplaceStringTemplate": "base_image: {{depName}}{{#if newTag}}:{{newTag}}{{/if}}@{{newDigest}}",
       "managerFilePatterns": ["/^\\.goreleaser\\.ya?ml$/"]
     },
     {
@@ -201,10 +201,10 @@
     },
     {
       "customType": "regex",
-      "description": "MegaLinter image digest, tracked against the container repository.",
+      "description": "MegaLinter image digest, tracked against the container repository. currentDigest captures the 'sha256:' prefix so the in-place substitution matches the docker datasource's newDigest format; with a bare hex capture the result becomes 'sha256:sha256:...' and the branch fails with 'update failure'. This manager has no autoReplaceStringTemplate, so Renovate substitutes currentDigest for newDigest inside the matched text.",
       "managerFilePatterns": ["/^\\.github/megalinter-image\\.env$/"],
       "matchStrings": [
-        "MEGALINTER_IMAGE_DIGEST=\"\\$\\{MEGALINTER_IMAGE_DIGEST:-sha256:(?<currentDigest>[a-f0-9]{64})\\}\""
+        "MEGALINTER_IMAGE_DIGEST=\"\\$\\{MEGALINTER_IMAGE_DIGEST:-(?<currentDigest>sha256:[a-f0-9]{64})\\}\""
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "ghcr.io/oxsecurity/megalinter"
