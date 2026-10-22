@@ -61,7 +61,7 @@ jobs:
 
       - name: Restore Podman image cache
         id: cache-podman-images
-        uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/containers
           key: podman-megalinter-${{ steps.megalinter-image.outputs.version }}-${{ steps.megalinter-image.outputs.cache-digest }}-${{ runner.os }}-${{ runner.arch }}
@@ -71,7 +71,7 @@ jobs:
 
       - name: Save Podman image cache
         if: github.event_name == 'push' && github.ref_name == 'main' && steps.cache-podman-images.outputs.cache-hit != 'true'
-        uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/containers
           key: ${{ steps.cache-podman-images.outputs.cache-primary-key }}
