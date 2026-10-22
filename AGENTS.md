@@ -70,7 +70,7 @@ Guidance for AI coding agents working in this repository.
 
 - Renovate config lives in `renovate.json`; validate changes with `task deps:validate` (`npx --package renovate renovate-config-validator`).
 - `task deps:check` dry-runs Renovate and `task deps:update` opens real PRs. Both override the config's Monday schedule via `RENOVATE_CONFIG`, because the schedule otherwise blocks local lookups entirely.
-- `main` requires signed commits and linear history with no bypass actors, so `platformCommit` is enabled. Renovate commits through the GitHub API, which signs them. Do not disable it.
+- `main` requires signed commits and linear history with no bypass actors, so `platformCommit` is set to `auto`. As a GitHub App, Renovate commits through the GitHub API and GitHub signs them; with a personal access token it falls back to local git commits, which are signed by the developer's configured key and must also carry the DCO `Signed-off-by` trailer. Do not force it to `enabled`: API commits made with a PAT are not signed, so local `task deps:update` runs would produce unverified commits.
 - There is no merge queue and no required status checks on `main`, so Renovate must not automerge. Leave `automerge` off and let a human merge.
 - Pinned CLI tools installed by `curl` in workflows (git-cliff, helm, ko, kind) are tracked with `customManager` regexes. When adding a new curl pin, add a matching manager or the version will silently stop updating.
 - The ko base image is pinned twice: `.ko.yaml` `defaultBaseImage` and `.goreleaser.yml` `kos.base_image`. Both need a manager so they stay in sync.

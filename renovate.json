@@ -3,7 +3,7 @@
   "extends": ["config:recommended", ":dependencyDashboard", ":gitSignOff"],
   "timezone": "UTC",
   "rebaseWhen": "behind-base-branch",
-  "platformCommit": "enabled",
+  "platformCommit": "auto",
   "semanticCommits": "enabled",
   "semanticCommitType": "chore",
   "semanticCommitScope": "deps",
@@ -18,7 +18,7 @@
   },
   "packageRules": [
     {
-      "description": "main requires signed commits and linear history. platformCommit makes Renovate commit through the GitHub API so commits are signed, and GitHub only offers linear-safe merge methods.",
+      "description": "main requires signed commits and linear history. platformCommit is set to auto: as a GitHub App Renovate commits through the GitHub API and GitHub signs them, while with a personal access token it falls back to local git commits, which are signed by the developer's own configured key. Forcing enabled would break local runs, because API commits with a PAT are not signed.",
       "matchPackageNames": ["*"],
       "addLabels": ["dependencies"]
     },
