@@ -153,6 +153,17 @@
     },
     {
       "customType": "regex",
+      "description": "Task CLI version passed to go-task/setup-task. Pinned exactly rather than as 3.x, because a floating range makes the action resolve the newest release through the GitHub API at runtime and fail with 'unable to get latest version' when that call is rate limited.",
+      "matchStrings": [
+        "version: (?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\n"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "go-task/task",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"]
+    },
+    {
+      "customType": "regex",
       "description": "Argo CD Operator revision pinned in the Taskfile.",
       "matchStrings": [
         "ARGOCD_OPERATOR_VERSION: '\\{\\{\\.ARGOCD_OPERATOR_VERSION \\| default \"v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\"\\}\\}'"
