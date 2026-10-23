@@ -11,18 +11,21 @@ ENABLE_LINTERS:
   - YAML_PRETTIER
   - SPELL_VALE
   - DOCKERFILE_HADOLINT
-  - SECRET_GITLEAKS
+  - REPOSITORY_BETTERLEAKS
   - REPOSITORY_GIT_DIFF
   - KUBERNETES_HELM
   - TERRAFORM_TFLINT
   - TERRAFORM_TERRAFORM_FMT
   - POWERSHELL_POWERSHELL_FORMATTER
-  # Disabled until MegaLinter's golangci-lint image includes Go 1.26.5.
   - GO_REVIVE
 
 FLAVOR_SUGGESTIONS: false
 SARIF_REPORTER: true
 SECURITY_SUGGESTIONS: false
+# CI lints a clean checkout, so this only affects local runs. Without it
+# betterleaks flags real credentials in gitignored files such as
+# e2e/tofu/terraform.tfstate.backup and .e2e/sa-signing.key.
+IGNORE_GITIGNORED_FILES: true
 
 ADDITIONAL_EXCLUDED_DIRECTORIES:
   - .opencode
@@ -52,7 +55,8 @@ DOCKERFILE_HADOLINT_FILE_NAMES_REGEX:
 KUBERNETES_HELM_ARGUMENTS: charts/azure-k8s-role-assigner
 KUBERNETES_DIRECTORY: charts/azure-k8s-role-assigner
 
-TERRAFORM_TFLINT_UNSECURED_ENV_VARIABLES: GITHUB_TOKEN
+TERRAFORM_TFLINT_UNSECURED_ENV_VARIABLES:
+  - GITHUB_TOKEN
 
 ACTION_ZIZMOR_UNSECURED_ENV_VARIABLES:
   - GITHUB_TOKEN
