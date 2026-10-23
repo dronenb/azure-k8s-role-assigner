@@ -968,7 +968,9 @@ tasks:
         git switch "$BASE_BRANCH"
         git pull --ff-only origin "$BASE_BRANCH"
         git switch -c "$RELEASE_BRANCH"
-        git commit --allow-empty -m "chore: release ${NEXT_VERSION}"
+        # --signoff is required: main enforces DCO, and an empty commit is still
+        # a commit, so it needs the Signed-off-by trailer like any other.
+        git commit --signoff --allow-empty -m "chore: release ${NEXT_VERSION}"
         git push -u origin "$RELEASE_BRANCH"
 
         PR_URL="$(gh pr create \
