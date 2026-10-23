@@ -207,6 +207,56 @@
     },
     {
       "customType": "regex",
+      "description": "prek version in CONTRIBUTING.md's Prerequisites. Renovate has no Markdown manager, so these drifted several releases behind what the workflows actually pin. One customManager is needed per tool because depNameTemplate cannot vary within a single manager.",
+      "managerFilePatterns": ["/^CONTRIBUTING\\.md$/"],
+      "matchStrings": [
+        "https://github\\.com/j178/prek\\) \\(v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\+?\\)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "j178/prek"
+    },
+    {
+      "customType": "regex",
+      "description": "ko version in CONTRIBUTING.md's Prerequisites.",
+      "managerFilePatterns": ["/^CONTRIBUTING\\.md$/"],
+      "matchStrings": [
+        "https://ko\\.build/\\) \\(v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "ko-build/ko"
+    },
+    {
+      "customType": "regex",
+      "description": "Helm version in CONTRIBUTING.md's Prerequisites.",
+      "managerFilePatterns": ["/^CONTRIBUTING\\.md$/"],
+      "matchStrings": [
+        "https://helm\\.sh/\\) \\(v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "helm/helm"
+    },
+    {
+      "customType": "regex",
+      "description": "git-cliff version in CONTRIBUTING.md's Prerequisites.",
+      "managerFilePatterns": ["/^CONTRIBUTING\\.md$/"],
+      "matchStrings": [
+        "https://git-cliff\\.org/\\) \\(v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "orhun/git-cliff"
+    },
+    {
+      "customType": "regex",
+      "description": "kind version in CONTRIBUTING.md's Prerequisites.",
+      "managerFilePatterns": ["/^CONTRIBUTING\\.md$/"],
+      "matchStrings": [
+        "https://kind\\.sigs\\.k8s\\.io/\\) \\(v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\+?\\)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "kubernetes-sigs/kind"
+    },
+    {
+      "customType": "regex",
       "description": "MegaLinter image digest, tracked against the container repository. currentDigest captures the 'sha256:' prefix so the in-place substitution matches the docker datasource's newDigest format; with a bare hex capture the result becomes 'sha256:sha256:...' and the branch fails with 'update failure'. This manager has no autoReplaceStringTemplate, so Renovate substitutes currentDigest for newDigest inside the matched text.",
       "managerFilePatterns": ["/^\\.github/megalinter-image\\.env$/"],
       "matchStrings": [
