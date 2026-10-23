@@ -147,17 +147,36 @@ jobs:
           mkdir -p "${runtime_dir}/podman"
           chmod 700 "${runtime_dir}"
           export XDG_RUNTIME_DIR="${runtime_dir}"
+
+          # Fail loudly here rather than letting the wait loop below time out
+          # with no explanation. Podman refuses to run at all when
+          # XDG_RUNTIME_DIR is unusable, and the socket then never appears.
+          podman info >/dev/null
+
+          service_log="${RUNNER_TEMP}/podman-service.log"
           if [ ! -S "${socket_path}" ]; then
-            podman system service --time=0 "unix://${socket_path}" &
+            # Redirect to a file: a backgrounded process writing to the step's
+            # stdout is not reliably flushed before the step exits, which is
+            # why earlier failures here produced zero diagnostic output.
+            podman system service --time=0 "unix://${socket_path}" \
+              >"${service_log}" 2>&1 &
+            service_pid=$!
           fi
-          for _ in 1 2 3 4 5 6 7 8 9 10; do
+          for _ in $(seq 30); do
             if [ -S "${socket_path}" ]; then
+              break
+            fi
+            if [ -n "${service_pid:-}" ] && ! kill -0 "${service_pid}" 2>/dev/null; then
               break
             fi
             sleep 1
           done
           if [ ! -S "${socket_path}" ]; then
             echo "::error::Podman Docker-compatible socket did not start"
+            if [ -f "${service_log}" ]; then
+              echo "--- podman system service output ---"
+              cat "${service_log}"
+            fi
             exit 1
           fi
 
