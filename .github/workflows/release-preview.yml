@@ -263,7 +263,8 @@ jobs:
       contents: read
       packages: read # Allow the called workflow to read registry images.
       security-events: write # Upload Trivy SARIF results to code scanning.
-    uses: ./.github/workflows/scan-trivy.yml
+    # Self-repository syntax; see the note on the iac-scan job in tests.yml.
+    uses: $/.github/workflows/scan-trivy.yml
     with:
       scan-type: config
       scan-ref: charts/azure-k8s-role-assigner
@@ -278,7 +279,8 @@ jobs:
       contents: read
       packages: read # Allow the called workflow to read registry images.
       security-events: write # Upload Trivy SARIF results to code scanning.
-    uses: ./.github/workflows/scan-trivy.yml
+    # Self-repository syntax; see the note on the iac job above.
+    uses: $/.github/workflows/scan-trivy.yml
     with:
       scan-type: config
       scan-ref: tofu

@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: write # Create tags, releases, and update release notes.
       packages: write # Publish container images and Helm charts to GHCR.
-      id-token: write # Keyless cosign signing during GoReleaser publish.
+      id-token: write # Keyless cosign signing of the image and Helm chart.
     env:
       DOCKER_CONFIG: /tmp/docker-config
 
@@ -120,6 +120,17 @@ jobs:
             exit 1
           fi
           echo "digest=${CHART_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign Helm chart
+        # Keyless signing, matching the container image. The chart is signed by
+        # digest rather than tag: cosign resolves a tag to a digest anyway, and
+        # pinning here keeps the signature attached to the exact pushed artifact.
+        env:
+          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          cosign sign "ghcr.io/dronenb/charts/azure-k8s-role-assigner@${CHART_DIGEST}"
 
       - name: Set up Podman Docker compatibility
         run: |

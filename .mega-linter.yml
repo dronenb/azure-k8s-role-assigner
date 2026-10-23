@@ -61,6 +61,16 @@ TERRAFORM_TFLINT_UNSECURED_ENV_VARIABLES:
 ACTION_ZIZMOR_UNSECURED_ENV_VARIABLES:
   - GITHUB_TOKEN
 
+# MegaLinter v10.1.0 ships zizmor 1.25.0, which cannot even parse the
+# self-repository `uses: $/...` syntax the workflows use: it fails with
+# "data did not match any variant of untagged enum Job" and audits nothing.
+# Run a newer zizmor from PyPI via uvx (bundled in the image) instead. The
+# version is pinned and tracked by Renovate; bare `uvx zizmor` would silently
+# float to whatever is newest.
+ACTION_ZIZMOR_CLI_EXECUTABLE:
+  - uvx
+  - zizmor@1.31.1
+
 ACTION_ZIZMOR_ARGUMENTS: >-
   --persona=pedantic
   --min-severity informational
