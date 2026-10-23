@@ -57,6 +57,14 @@ if [[ -n "${chart_digest}" ]]; then
 	cat >>"${release_notes_file}" <<EOF
 
 The chart OCI digest is \`${chart_digest}\`.
+
+Verify the chart signature with cosign:
+
+\`\`\`bash
+cosign verify ${chart_ref} \\
+  --certificate-identity-regexp="https://github.com/dronenb/azure-k8s-role-assigner" \\
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+\`\`\`
 EOF
 fi
 

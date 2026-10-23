@@ -85,7 +85,8 @@ jobs:
       contents: read
       packages: read # Pull the published image layers.
       security-events: write # Upload Trivy SARIF results to code scanning.
-    uses: ./.github/workflows/scan-trivy.yml
+    # Self-repository syntax; see the note on the iac-scan job in tests.yml.
+    uses: $/.github/workflows/scan-trivy.yml
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.resolve.outputs.matrix) }}

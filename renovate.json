@@ -167,9 +167,7 @@
     {
       "customType": "regex",
       "description": "Task CLI version passed to go-task/setup-task. Pinned exactly rather than as 3.x, because a floating range makes the action resolve the newest release through the GitHub API at runtime and fail with 'unable to get latest version' when that call is rate limited.",
-      "matchStrings": [
-        "version: (?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\n"
-      ],
+      "matchStrings": ["version: (?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\n"],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "go-task/task",
       "extractVersionTemplate": "^v(?<version>.*)$",
@@ -184,6 +182,14 @@
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "argoproj-labs/argocd-operator",
       "managerFilePatterns": ["/^Taskfile\\.ya?ml$/"]
+    },
+    {
+      "customType": "regex",
+      "description": "zizmor, pinned in .mega-linter.yml as ACTION_ZIZMOR_CLI_EXECUTABLE. MegaLinter's bundled zizmor is too old to parse the self-repository 'uses: $/...' syntax, so the linter runs 'uvx zizmor@<version>' from PyPI instead. Tracked against PyPI rather than GitHub releases because uvx resolves it there. Drop this manager and the override once MegaLinter's own zizmor reaches 1.30.0 or later.",
+      "managerFilePatterns": ["/^\\.mega-linter\\.ya?ml$/"],
+      "matchStrings": ["- zizmor@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "datasourceTemplate": "pypi",
+      "depNameTemplate": "zizmor"
     },
     {
       "customType": "regex",

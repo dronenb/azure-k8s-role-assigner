@@ -234,7 +234,13 @@ jobs:
       contents: read
       packages: read # Allow the called workflow to read registry images.
       security-events: write # Upload Trivy SARIF results to code scanning.
-    uses: ./.github/workflows/scan-trivy.yml
+    # Uses GitHub's self-repository syntax ($/...) rather than the
+    # workspace-relative form (./...): $/ resolves against the repository
+    # instead of runtime filesystem state, so it cannot load an action cloned
+    # by an earlier step, and GitHub treats it as pinning for policy purposes.
+    # This requires zizmor >= 1.30.0 to parse, which is why .mega-linter.yml
+    # pins ACTION_ZIZMOR_CLI_EXECUTABLE to a newer zizmor than the image ships.
+    uses: $/.github/workflows/scan-trivy.yml
     with:
       scan-type: config
       scan-ref: charts/azure-k8s-role-assigner
@@ -248,7 +254,8 @@ jobs:
       contents: read
       packages: read # Allow the called workflow to read registry images.
       security-events: write # Upload Trivy SARIF results to code scanning.
-    uses: ./.github/workflows/scan-trivy.yml
+    # Self-repository syntax; see the note on the iac-scan job.
+    uses: $/.github/workflows/scan-trivy.yml
     with:
       scan-type: config
       scan-ref: tofu
