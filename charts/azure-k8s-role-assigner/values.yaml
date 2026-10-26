@@ -2,8 +2,11 @@ replicaCount: 2
 
 image:
   repository: ghcr.io/dronenb/azure-k8s-role-assigner
-  tag: latest
-  pullPolicy: Always
+  # Defaults to the chart's appVersion, so a released chart deploys the image
+  # built from the same release rather than a floating tag. Override for local
+  # or e2e builds.
+  tag: ""
+  pullPolicy: IfNotPresent
 
 nameOverride: ""
 fullnameOverride: ""

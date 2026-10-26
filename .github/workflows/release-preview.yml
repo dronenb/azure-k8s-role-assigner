@@ -79,7 +79,7 @@ jobs:
           helm lint charts/azure-k8s-role-assigner
           helm package charts/azure-k8s-role-assigner \
             --version "$CHART_VERSION" \
-            --app-version "$VERSION" \
+            --app-version "$CHART_VERSION" \
             --destination dist
         env:
           VERSION: ${{ steps.version.outputs.version }}
