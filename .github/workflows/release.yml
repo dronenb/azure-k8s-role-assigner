@@ -75,10 +75,12 @@ jobs:
         run: |
           CHART_VERSION="${VERSION#v}"
           helm lint charts/azure-k8s-role-assigner
+          # Package outside dist/: GoReleaser runs with --clean and deletes
+          # dist/ before the chart is pushed after the image.
           helm package charts/azure-k8s-role-assigner \
             --version "$CHART_VERSION" \
             --app-version "$CHART_VERSION" \
-            --destination dist
+            --destination "${RUNNER_TEMP}/chart"
         env:
           VERSION: ${{ steps.version.outputs.version }}
 
@@ -189,7 +191,7 @@ jobs:
         # an image tag that does not exist yet. The chart's default image tag is
         # its appVersion, so the two are released as a matched pair.
         run: |
-          helm push dist/azure-k8s-role-assigner-*.tgz oci://ghcr.io/dronenb/charts --registry-config "$DOCKER_CONFIG/config.json" | tee /tmp/helm-push.txt
+          helm push "${RUNNER_TEMP}"/chart/azure-k8s-role-assigner-*.tgz oci://ghcr.io/dronenb/charts --registry-config "$DOCKER_CONFIG/config.json" | tee /tmp/helm-push.txt
           CHART_DIGEST=""
           while IFS= read -r line; do
             case "$line" in
@@ -214,7 +216,7 @@ jobs:
           cosign sign "ghcr.io/dronenb/charts/azure-k8s-role-assigner@${CHART_DIGEST}"
 
       - name: Upload Helm chart to GitHub Release
-        run: gh release upload "$VERSION" dist/azure-k8s-role-assigner-*.tgz --clobber
+        run: gh release upload "$VERSION" "${RUNNER_TEMP}"/chart/azure-k8s-role-assigner-*.tgz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
