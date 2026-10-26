@@ -221,22 +221,16 @@ jobs:
 
       - name: Update release notes with published digests
         run: |
+          set -euo pipefail
           IMAGE_DIGEST=""
-          IMAGE_VERSION="${VERSION#v}"
-          while IFS= read -r line; do
-            case "$line" in
-              *"ghcr.io/dronenb/azure-k8s-role-assigner:${IMAGE_VERSION}"*)
-                for field in $line; do
-                  case "$field" in
-                    *@sha256:*) IMAGE_DIGEST="${field##*@}" ;;
-                    sha256:*) IMAGE_DIGEST="$field" ;;
-                  esac
-                done
-                if [ -n "$IMAGE_DIGEST" ]; then
-                  break
-                fi
-                ;;
-            esac
+          IMAGE_REF="ghcr.io/dronenb/azure-k8s-role-assigner:${VERSION#v}"
+          # GoReleaser writes "<hex>  <image-ref>" per line, with the
+          # algorithm prefix stripped from the digest.
+          while read -r digest ref; do
+            if [ "$ref" = "$IMAGE_REF" ] && [ -n "$digest" ]; then
+              IMAGE_DIGEST="sha256:${digest#sha256:}"
+              break
+            fi
           done < dist/azure-k8s-role-assigner_digests.txt
           if [ -z "$IMAGE_DIGEST" ]; then
             echo "Failed to determine image digest" >&2

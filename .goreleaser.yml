@@ -65,7 +65,7 @@ docker_signs:
   - artifacts: manifests
 
 docker_digest:
-  name_template: "{{ProjectName}}_digests.txt"
+  name_template: "{{ .ProjectName }}_digests.txt"
 
 archives:
   - formats:
