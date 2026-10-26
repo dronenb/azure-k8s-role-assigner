@@ -62,7 +62,13 @@ signs:
     artifacts: checksum
 
 docker_signs:
+  # Explicit args are required: GoReleaser's default is key-based
+  # ("--key=cosign.key"), but releases sign keylessly via GitHub OIDC.
   - artifacts: manifests
+    args:
+      - sign
+      - "${artifact}@${digest}"
+      - "--yes"
 
 docker_digest:
   name_template: "{{ .ProjectName }}_digests.txt"
