@@ -77,18 +77,33 @@ jobs:
           helm lint charts/azure-k8s-role-assigner
           helm package charts/azure-k8s-role-assigner \
             --version "$CHART_VERSION" \
-            --app-version "$VERSION" \
+            --app-version "$CHART_VERSION" \
             --destination dist
         env:
           VERSION: ${{ steps.version.outputs.version }}
 
       - name: Create and push tag
+        # Idempotent so a failed release can be re-run without manual cleanup:
+        # GoReleaser derives the version from this tag, so it has to exist
+        # before publishing and is therefore left behind whenever a later step
+        # fails. Reusing a tag that already points at this commit is safe; one
+        # pointing elsewhere means the version was already released.
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$VERSION" -m "Release $VERSION"
           auth_header="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 -w0)"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" push origin "$VERSION"
+          remote_commit="$(git ls-remote --tags origin "refs/tags/${VERSION}^{}" | cut -f1)"
+          if [ -n "${remote_commit}" ]; then
+            if [ "${remote_commit}" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag ${VERSION} already exists on a different commit"
+              exit 1
+            fi
+            echo "Tag ${VERSION} already points at HEAD; reusing it."
+          else
+            git tag -a "$VERSION" -m "Release $VERSION"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" push origin "$VERSION"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -104,33 +119,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           auth_file_path: ${{ env.DOCKER_CONFIG }}/config.json
-
-      - name: Push Helm chart
-        id: chart
-        run: |
-          helm push dist/azure-k8s-role-assigner-*.tgz oci://ghcr.io/dronenb/charts --registry-config "$DOCKER_CONFIG/config.json" | tee /tmp/helm-push.txt
-          CHART_DIGEST=""
-          while IFS= read -r line; do
-            case "$line" in
-              "Digest: "*) CHART_DIGEST="${line#Digest: }" ;;
-            esac
-          done < /tmp/helm-push.txt
-          if [ -z "$CHART_DIGEST" ]; then
-            echo "Failed to determine Helm chart digest" >&2
-            exit 1
-          fi
-          echo "digest=${CHART_DIGEST}" >> "$GITHUB_OUTPUT"
-
-      - name: Sign Helm chart
-        # Keyless signing, matching the container image. The chart is signed by
-        # digest rather than tag: cosign resolves a tag to a digest anyway, and
-        # pinning here keeps the signature attached to the exact pushed artifact.
-        env:
-          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
-          COSIGN_YES: "true"
-        run: |
-          set -euo pipefail
-          cosign sign "ghcr.io/dronenb/charts/azure-k8s-role-assigner@${CHART_DIGEST}"
 
       - name: Set up Podman Docker compatibility
         run: |
@@ -194,6 +182,36 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KO_DOCKER_REPO: ghcr.io/dronenb/azure-k8s-role-assigner
           COSIGN_YES: "true"
+
+      - name: Push Helm chart
+        id: chart
+        # Published after the image so a successful chart push never advertises
+        # an image tag that does not exist yet. The chart's default image tag is
+        # its appVersion, so the two are released as a matched pair.
+        run: |
+          helm push dist/azure-k8s-role-assigner-*.tgz oci://ghcr.io/dronenb/charts --registry-config "$DOCKER_CONFIG/config.json" | tee /tmp/helm-push.txt
+          CHART_DIGEST=""
+          while IFS= read -r line; do
+            case "$line" in
+              "Digest: "*) CHART_DIGEST="${line#Digest: }" ;;
+            esac
+          done < /tmp/helm-push.txt
+          if [ -z "$CHART_DIGEST" ]; then
+            echo "Failed to determine Helm chart digest" >&2
+            exit 1
+          fi
+          echo "digest=${CHART_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign Helm chart
+        # Keyless signing, matching the container image. The chart is signed by
+        # digest rather than tag: cosign resolves a tag to a digest anyway, and
+        # pinning here keeps the signature attached to the exact pushed artifact.
+        env:
+          CHART_DIGEST: ${{ steps.chart.outputs.digest }}
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          cosign sign "ghcr.io/dronenb/charts/azure-k8s-role-assigner@${CHART_DIGEST}"
 
       - name: Upload Helm chart to GitHub Release
         run: gh release upload "$VERSION" dist/azure-k8s-role-assigner-*.tgz --clobber
