@@ -15,11 +15,13 @@ chart_digest="${4:-}"
 
 image_ref="ghcr.io/dronenb/azure-k8s-role-assigner:${image_version}"
 chart_ref="ghcr.io/dronenb/charts/azure-k8s-role-assigner:${chart_version}"
+# Keep the tag alongside the digest: the digest pins the exact artifact, while
+# the tag tells readers which version it is. Pull tools resolve by digest.
 if [[ -n "${image_digest}" ]]; then
-	image_ref="ghcr.io/dronenb/azure-k8s-role-assigner@${image_digest}"
+	image_ref="${image_ref}@${image_digest}"
 fi
 if [[ -n "${chart_digest}" ]]; then
-	chart_ref="ghcr.io/dronenb/charts/azure-k8s-role-assigner@${chart_digest}"
+	chart_ref="${chart_ref}@${chart_digest}"
 fi
 
 cat >>"${release_notes_file}" <<EOF
@@ -30,7 +32,6 @@ The controller image is published to GHCR:
 
 \`\`\`bash
 docker pull ${image_ref}
-docker pull ghcr.io/dronenb/azure-k8s-role-assigner:latest
 \`\`\`
 
 Verify the image signature with cosign:
@@ -68,14 +69,20 @@ cosign verify ${chart_ref} \\
 EOF
 fi
 
+if [[ -n "${chart_digest}" ]]; then
+	helm_chart_args="oci://${chart_ref}"
+else
+	helm_chart_args="oci://${chart_ref%:*} \\
+  --version ${chart_version}"
+fi
+
 cat >>"${release_notes_file}" <<EOF
 
 Install the chart from GHCR:
 
 \`\`\`bash
 helm upgrade --install azure-k8s-role-assigner \\
-  oci://ghcr.io/dronenb/charts/azure-k8s-role-assigner \\
-  --version ${chart_version} \\
+  ${helm_chart_args} \\
   --namespace azure-k8s-role-assigner \\
   --create-namespace
 \`\`\`
