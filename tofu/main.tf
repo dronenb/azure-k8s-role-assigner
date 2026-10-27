@@ -358,6 +358,17 @@ resource "azuread_app_role_assignment" "gha_user_read_all" {
   resource_object_id  = data.azuread_service_principal.microsoft_graph.object_id
 }
 
+# GHA SP: Directory Readers (read back the delegated permission grants that OpenTofu creates under the
+# limited consent policy; custom roles cannot include microsoft.directory/oAuth2PermissionGrants/standard/read)
+resource "azuread_directory_role" "directory_readers" {
+  display_name = "Directory Readers"
+}
+
+resource "azuread_directory_role_assignment" "gha_directory_readers" {
+  role_id             = azuread_directory_role.directory_readers.template_id
+  principal_object_id = azuread_service_principal.github_actions.object_id
+}
+
 
 # --- Test Groups (static, persist across runs) ---
 

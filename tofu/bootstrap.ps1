@@ -134,9 +134,7 @@ Write-Host "Creating custom directory role '$roleName'..."
 $existingRole = Get-MgRoleManagementDirectoryRoleDefinition -Filter "displayName eq '$roleName'" -ErrorAction SilentlyContinue | Select-Object -First 1
 $requiredAllowedResourceActions = @(
 	"microsoft.directory/servicePrincipals/managePermissionGrantsForAll.$policyId",
-	"microsoft.directory/servicePrincipals/managePermissionGrantsForSelf.$policyId",
-	# Lets OpenTofu read back the delegated permission grants it creates under the policy
-	"microsoft.directory/servicePrincipals/oAuth2PermissionGrants/read"
+	"microsoft.directory/servicePrincipals/managePermissionGrantsForSelf.$policyId"
 )
 
 if ($existingRole) {
