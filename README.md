@@ -40,7 +40,7 @@ For detailed reconciliation behavior (read-only Kubernetes RBAC, no finalizers, 
 - App registration for the controller with the following:
   - **Owner** of the app registration(s) used for Kubernetes OIDC authentication
   - `Application.ReadWrite.OwnedBy` permission (to manage applications it owns)
-  - `Group.Read.All` permission (to look up groups)
+  - `GroupMember.Read.All` permission (to confirm referenced groups exist). Older versions of this documentation asked for `Group.Read.All`; that broader permission is not needed and can be revoked once `GroupMember.Read.All` is consented.
 
 **Authentication Options:**
 
@@ -459,7 +459,7 @@ If you enable `PodMonitor`, configure `networkPolicy.ingress.from` to allow your
 2. Verify the referenced Azure group Object ID exists: `az ad group show --group <GROUP_OBJECT_ID>`
 3. Ensure each `RoleBinding`/`ClusterRoleBinding` `subjects[].name` for `kind: Group` is the Azure group Object ID (UUID), not display name
 4. Ensure the controller's app registration is an owner of the cluster auth app registration(s)
-5. Ensure the controller's identity has the required Graph API permissions (`Application.ReadWrite.OwnedBy` and `Group.Read.All`)
+5. Ensure the controller's identity has the required Graph API permissions (`Application.ReadWrite.OwnedBy` and `GroupMember.Read.All`)
 6. Verify the service principal Object IDs are correct (not client IDs)
 7. Verify `AZURE_APP_ROLE_ID` is set to an app role ID from the cluster authentication app registration
 
@@ -467,7 +467,7 @@ If you enable `PodMonitor`, configure `networkPolicy.ingress.from` to allow your
 
 1. Verify the `azure.workload.identity/client-id` annotation on the ServiceAccount matches your controller's client ID
 2. Check that federated credentials are configured correctly for the controller's app registration
-3. Ensure the controller's app registration has the required Graph API permissions (`Application.ReadWrite.OwnedBy` and `Group.Read.All`)
+3. Ensure the controller's app registration has the required Graph API permissions (`Application.ReadWrite.OwnedBy` and `GroupMember.Read.All`)
 4. Verify the `AZURE_CLIENT_ID` environment variable is being injected (check pod env): `kubectl get pod -n azure-k8s-role-assigner -l app=azure-k8s-role-assigner -o jsonpath='{.items[0].spec.containers[0].env}'`
 5. For client secret auth, verify credentials are set correctly in the deployment's environment variables
 6. Ensure the controller's app registration owns the cluster auth app registration(s)

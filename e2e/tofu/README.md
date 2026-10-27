@@ -8,11 +8,11 @@ This directory contains **per-run** Entra ID resources provisioned by OpenTofu d
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Controller app registration + SP                                     | The identity the controller authenticates as (WIF via projected SA token)      |
 | Federated identity credential                                        | Links the controller service account to the controller app via OIDC issuer URL |
-| Graph API grants (`Group.Read.All`, `Application.ReadWrite.OwnedBy`) | Controller permissions to read groups and manage app role assignments          |
+| Graph API grants (`GroupMember.Read.All`, `Application.ReadWrite.OwnedBy`) | Controller permissions to read groups and manage app role assignments          |
 | Cluster app registration + SP                                        | Represents the "cluster" resource — groups are assigned app roles on this SP   |
 | `Cluster.Access` app role                                            | Custom app role on the cluster app (assigned to groups by the controller)      |
 | Argo CD app registration + SP                                        | Represents the Argo CD resource — groups are assigned app roles on this SP     |
-| Delegated Graph permission grant                                     | Allows the static e2e user to obtain ROPC tokens without interactive consent   |
+| Delegated Graph permission grants (`email`, `openid`, `profile`)     | Tenant-wide consent so the static e2e user can obtain ROPC tokens without an interactive prompt; granted under the limited consent policy |
 
 Test groups are **not** created here — they come from the static infra (`tofu/`) and are passed through as variables.
 The e2e verification user is also **not** created here — it comes from static infra and is used by the verify step via ROPC.

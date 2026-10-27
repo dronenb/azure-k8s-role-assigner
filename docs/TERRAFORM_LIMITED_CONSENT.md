@@ -24,7 +24,7 @@ This separation is least privilege and avoids self-ownership coupling.
 
 ## Required Graph App Permissions (on controller identity)
 
-- `Group.Read.All`
+- `GroupMember.Read.All`
 - `Application.ReadWrite.OwnedBy`
 
 ## Why a Permission Grant Policy Is Needed
@@ -57,13 +57,13 @@ $terraformProvisionerSpAppId = "<terraform-service-principal-id>"
 ```pwsh
 $graphSp = Get-MgServicePrincipal -Filter "displayName eq 'Microsoft Graph'" -ErrorAction Stop | Select-Object -First 1
 
-$groupReadAll = $graphSp.AppRoles | Where-Object { $_.Value -eq "Group.Read.All" } | Select-Object -First 1
+$groupMemberReadAll = $graphSp.AppRoles | Where-Object { $_.Value -eq "GroupMember.Read.All" } | Select-Object -First 1
 $appRwOwnedBy = $graphSp.AppRoles | Where-Object { $_.Value -eq "Application.ReadWrite.OwnedBy" } | Select-Object -First 1
 $emailScope = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -eq "email" } | Select-Object -First 1
 $openidScope = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -eq "openid" } | Select-Object -First 1
 $profileScope = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -eq "profile" } | Select-Object -First 1
 
-if (-not $groupReadAll -or -not $appRwOwnedBy -or -not $emailScope -or -not $openidScope -or -not $profileScope) {
+if (-not $groupMemberReadAll -or -not $appRwOwnedBy -or -not $emailScope -or -not $openidScope -or -not $profileScope) {
     throw "Could not resolve required Graph app role and delegated scope IDs."
 }
 ```
@@ -84,7 +84,7 @@ New-MgPolicyPermissionGrantPolicyInclude `
     -PermissionGrantPolicyId $policyId `
     -PermissionType "application" `
     -ResourceApplication $graphSp.AppId `
-    -Permissions @($groupReadAll.Id, $appRwOwnedBy.Id) `
+    -Permissions @($groupMemberReadAll.Id, $appRwOwnedBy.Id) `
     -ClientApplicationIds @("all")
 
 New-MgPolicyPermissionGrantPolicyInclude `
@@ -209,8 +209,8 @@ data "azuread_service_principal" "microsoft_graph" {
   client_id = "00000003-0000-0000-c000-000000000000"
 }
 
-resource "azuread_app_role_assignment" "controller_group_read_all" {
-  app_role_id         = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "Group.Read.All"])
+resource "azuread_app_role_assignment" "controller_groupmember_read_all" {
+  app_role_id         = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "GroupMember.Read.All"])
   principal_object_id = azuread_service_principal.controller.object_id
   resource_object_id  = data.azuread_service_principal.microsoft_graph.object_id
 }

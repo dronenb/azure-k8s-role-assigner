@@ -101,7 +101,7 @@ resource "azuread_application" "controller" {
     resource_app_id = data.azuread_service_principal.microsoft_graph.client_id
 
     resource_access {
-      id   = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "Group.Read.All"])
+      id   = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "GroupMember.Read.All"])
       type = "Role"
     }
 
@@ -189,8 +189,8 @@ resource "azuread_application_owner" "cluster_app_controller_owner" {
   owner_object_id = azuread_service_principal.controller.object_id
 }
 
-resource "azuread_app_role_assignment" "controller_group_read_all" {
-  app_role_id         = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "Group.Read.All"])
+resource "azuread_app_role_assignment" "controller_groupmember_read_all" {
+  app_role_id         = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "GroupMember.Read.All"])
   principal_object_id = azuread_service_principal.controller.object_id
   resource_object_id  = data.azuread_service_principal.microsoft_graph.object_id
 }
