@@ -12,7 +12,7 @@ This directory contains the **one-time provisioned** infrastructure for CI/CD an
 - GitHub Actions app registration + service principal: WIF identity for CI (federated for PR + main branch).
 - Federated identity credentials: OIDC trust for `repo:<org>/<repo>:pull_request` and `:ref:refs/heads/main`.
 - Key Vault role assignment: GHA SP gets `Key Vault Secrets User` to download the signing key.
-- Graph API role assignments: GHA SP gets `Application.ReadWrite.OwnedBy`, `User.Read.All`, and `DelegatedPermissionGrant.ReadWrite.All` for per-run e2e provisioning.
+- Graph API role assignments: GHA SP gets `Application.ReadWrite.OwnedBy` and `User.Read.All` for per-run e2e provisioning, plus the built-in Directory Readers role so OpenTofu can read back the delegated permission grants it creates. Custom roles can't include that read action. Consent for per-run apps (including the delegated `email`/`openid`/`profile` grants used by ROPC) goes through the limited consent policy created by `bootstrap.ps1`, not a broad Graph permission.
 - Static e2e test user: User principal used by e2e verification via ROPC.
 - Named locations for GitHub Actions runner IP ranges. The Conditional Access policy that would restrict the e2e test user to those ranges is present in code but currently commented out.
 - Four Entra security groups used by RoleBinding, ClusterRoleBinding, Argo CD ConfigMap, and Argo CD AppProject tests, plus filler groups that push the static test user over the 200-group token overage threshold.
@@ -121,11 +121,13 @@ If you enable that policy, it keeps ROPC usable for CI while preventing general 
 
 ## Bootstrap: Limited Consent Policy
 
-After `tofu apply`, run the PowerShell bootstrap script to create a limited consent policy. This allows the GHA SP to grant **only** `Group.Read.All`, `Application.ReadWrite.OwnedBy`, and delegated `email`/`openid`/`profile` scopes needed by per-run e2e apps — without requiring full tenant admin:
+After `tofu apply`, run the PowerShell bootstrap script to create a limited consent policy. This allows the GHA SP to grant **only** `GroupMember.Read.All`, `Application.ReadWrite.OwnedBy`, and delegated `email`/`openid`/`profile` scopes needed by per-run e2e apps — without requiring full tenant admin:
 
 ```powershell
 ./bootstrap.ps1 -GhaSpObjectId "$(tofu output -raw github_actions_object_id)"
 ```
+
+The script is safe to re-run. When the allowed permissions change (for example the move from `Group.Read.All` to `GroupMember.Read.All`), re-running it removes any stale application-permission includes from the policy.
 
 This creates:
 

@@ -121,7 +121,7 @@ resource "azuread_application" "controller" {
     resource_app_id = data.azuread_service_principal.microsoft_graph.client_id
 
     resource_access {
-      id   = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "Group.Read.All"])
+      id   = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "GroupMember.Read.All"])
       type = "Role"
     }
 
@@ -137,9 +137,9 @@ resource "azuread_service_principal" "controller" {
   owners    = [data.azuread_client_config.current.object_id]
 }
 
-# Consent: Group.Read.All
-resource "azuread_app_role_assignment" "controller_group_read_all" {
-  app_role_id         = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "Group.Read.All"])
+# Consent: GroupMember.Read.All
+resource "azuread_app_role_assignment" "controller_groupmember_read_all" {
+  app_role_id         = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "GroupMember.Read.All"])
   principal_object_id = azuread_service_principal.controller.object_id
   resource_object_id  = data.azuread_service_principal.microsoft_graph.object_id
 }
@@ -274,7 +274,8 @@ resource "azuread_service_principal" "cluster" {
   ]
 }
 
-resource "azuread_service_principal_delegated_permission_grant" "cluster_e2e_test_user" {
+# Tenant-wide consent for sign-in scopes only, granted under the limited consent policy.
+resource "azuread_service_principal_delegated_permission_grant" "cluster_graph_signin" {
   service_principal_object_id          = azuread_service_principal.cluster.object_id
   resource_service_principal_object_id = data.azuread_service_principal.microsoft_graph.object_id
   claim_values = [
@@ -282,7 +283,6 @@ resource "azuread_service_principal_delegated_permission_grant" "cluster_e2e_tes
     one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "openid"]),
     one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "profile"])
   ]
-  user_object_id = data.azuread_user.e2e_test_user.object_id
 }
 
 # --- Argo CD OIDC App Registration ---
@@ -378,7 +378,8 @@ resource "azuread_application_federated_identity_credential" "argocd_k8s" {
   subject        = "system:serviceaccount:${var.argocd_service_account_namespace}:${var.argocd_service_account_name}"
 }
 
-resource "azuread_service_principal_delegated_permission_grant" "argocd_e2e_test_user" {
+# Tenant-wide consent for sign-in scopes only, granted under the limited consent policy.
+resource "azuread_service_principal_delegated_permission_grant" "argocd_graph_signin" {
   service_principal_object_id          = azuread_service_principal.argocd.object_id
   resource_service_principal_object_id = data.azuread_service_principal.microsoft_graph.object_id
   claim_values = [
@@ -386,8 +387,6 @@ resource "azuread_service_principal_delegated_permission_grant" "argocd_e2e_test
     one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "openid"]),
     one([for s in data.azuread_service_principal.microsoft_graph.oauth2_permission_scopes : s.id if s.value == "profile"])
   ]
-
-  user_object_id = data.azuread_user.e2e_test_user.object_id
 }
 
 # --- Outputs ---

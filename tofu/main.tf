@@ -307,11 +307,6 @@ resource "azuread_application" "github_actions" {
       id   = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "User.Read.All"])
       type = "Role"
     }
-
-    resource_access {
-      id   = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "DelegatedPermissionGrant.ReadWrite.All"])
-      type = "Role"
-    }
   }
 }
 
@@ -363,12 +358,17 @@ resource "azuread_app_role_assignment" "gha_user_read_all" {
   resource_object_id  = data.azuread_service_principal.microsoft_graph.object_id
 }
 
-# GHA SP: Graph DelegatedPermissionGrant.ReadWrite.All (manage oauth2 permission grants)
-resource "azuread_app_role_assignment" "gha_delegated_permission_grant_rw" {
-  app_role_id         = one([for r in data.azuread_service_principal.microsoft_graph.app_roles : r.id if r.value == "DelegatedPermissionGrant.ReadWrite.All"])
-  principal_object_id = azuread_service_principal.github_actions.object_id
-  resource_object_id  = data.azuread_service_principal.microsoft_graph.object_id
+# GHA SP: Directory Readers (read back the delegated permission grants that OpenTofu creates under the
+# limited consent policy; custom roles cannot include microsoft.directory/oAuth2PermissionGrants/standard/read)
+resource "azuread_directory_role" "directory_readers" {
+  display_name = "Directory Readers"
 }
+
+resource "azuread_directory_role_assignment" "gha_directory_readers" {
+  role_id             = azuread_directory_role.directory_readers.template_id
+  principal_object_id = azuread_service_principal.github_actions.object_id
+}
+
 
 # --- Test Groups (static, persist across runs) ---
 

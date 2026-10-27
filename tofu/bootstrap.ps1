@@ -6,12 +6,12 @@
 
 .DESCRIPTION
     Creates:
-	1. A permission grant policy that constrains consent to Group.Read.All + Application.ReadWrite.OwnedBy and delegated email/openid/profile scopes
+	1. A permission grant policy that constrains consent to GroupMember.Read.All + Application.ReadWrite.OwnedBy and delegated email/openid/profile scopes
     2. A custom directory role that allows the GHA SP to grant consent under that policy
     3. Assigns the custom role to the GHA SP
 
 	This enables the GHA SP to grant only the specific Graph permissions/scopes needed
-	(Group.Read.All + Application.ReadWrite.OwnedBy + delegated email/openid/profile) when provisioning per-run e2e resources,
+	(GroupMember.Read.All + Application.ReadWrite.OwnedBy + delegated email/openid/profile) when provisioning per-run e2e resources,
     without being a tenant admin.
 
 .PARAMETER GhaSpObjectId
@@ -42,17 +42,17 @@ Connect-MgGraph -Scopes "Policy.ReadWrite.PermissionGrant", "RoleManagement.Read
 Write-Host "Resolving Graph app role IDs..."
 $graphSp = Get-MgServicePrincipal -Filter "displayName eq 'Microsoft Graph'" -ErrorAction Stop | Select-Object -First 1
 
-$groupReadAll = $graphSp.AppRoles | Where-Object { $_.Value -eq "Group.Read.All" } | Select-Object -First 1
+$groupMemberReadAll = $graphSp.AppRoles | Where-Object { $_.Value -eq "GroupMember.Read.All" } | Select-Object -First 1
 $appRwOwnedBy = $graphSp.AppRoles | Where-Object { $_.Value -eq "Application.ReadWrite.OwnedBy" } | Select-Object -First 1
 $emailScope = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -eq "email" } | Select-Object -First 1
 $openidScope = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -eq "openid" } | Select-Object -First 1
 $profileScope = $graphSp.Oauth2PermissionScopes | Where-Object { $_.Value -eq "profile" } | Select-Object -First 1
 
-if (-not $groupReadAll -or -not $appRwOwnedBy -or -not $emailScope -or -not $openidScope -or -not $profileScope) {
+if (-not $groupMemberReadAll -or -not $appRwOwnedBy -or -not $emailScope -or -not $openidScope -or -not $profileScope) {
 	throw "Could not resolve required Graph app role and delegated scope IDs."
 }
 
-Write-Host "  Group.Read.All ID: $($groupReadAll.Id)"
+Write-Host "  GroupMember.Read.All ID: $($groupMemberReadAll.Id)"
 Write-Host "  Application.ReadWrite.OwnedBy ID: $($appRwOwnedBy.Id)"
 Write-Host "  email scope ID: $($emailScope.Id)"
 Write-Host "  openid scope ID: $($openidScope.Id)"
@@ -62,23 +62,26 @@ Write-Host "  profile scope ID: $($profileScope.Id)"
 Write-Host "Creating permission grant policy '$policyId'..."
 $existingPolicy = Get-MgPolicyPermissionGrantPolicy -PermissionGrantPolicyId $policyId -ErrorAction SilentlyContinue
 if ($existingPolicy) {
-	Write-Host "  Policy already exists, skipping creation."
+	Write-Host "  Policy already exists, ensuring description is current."
+	Update-MgPolicyPermissionGrantPolicy `
+		-PermissionGrantPolicyId $policyId `
+		-Description "Allows GHA SP to grant only GroupMember.Read.All and Application.ReadWrite.OwnedBy for azure-k8s-role-assigner e2e tests."
 } else {
 	New-MgPolicyPermissionGrantPolicy `
 		-Id $policyId `
 		-DisplayName $policyId `
-		-Description "Allows GHA SP to grant only Group.Read.All and Application.ReadWrite.OwnedBy for azure-k8s-role-assigner e2e tests."
+		-Description "Allows GHA SP to grant only GroupMember.Read.All and Application.ReadWrite.OwnedBy for azure-k8s-role-assigner e2e tests."
 
 	Write-Host "  Policy created."
 }
 
 
 # Ensure include for application permissions exists (idempotent)
+$expectedAppPermissions = @($groupMemberReadAll.Id, $appRwOwnedBy.Id) | Sort-Object
 $existingAppInclude = @(Get-MgPolicyPermissionGrantPolicyInclude -PermissionGrantPolicyId $policyId -ErrorAction SilentlyContinue) | Where-Object {
 	$_.PermissionType -eq "application" -and
 	$_.ResourceApplication -eq $graphSp.AppId -and
-	($_.Permissions -contains $groupReadAll.Id) -and
-	($_.Permissions -contains $appRwOwnedBy.Id)
+	-not (Compare-Object -ReferenceObject $expectedAppPermissions -DifferenceObject @($_.Permissions | Sort-Object))
 } | Select-Object -First 1
 
 if ($existingAppInclude) {
@@ -88,9 +91,21 @@ if ($existingAppInclude) {
 		-PermissionGrantPolicyId $policyId `
 		-PermissionType "application" `
 		-ResourceApplication $graphSp.AppId `
-		-Permissions @($groupReadAll.Id, $appRwOwnedBy.Id) `
-		-ClientApplicationIds @("all")
+		-Permissions @($groupMemberReadAll.Id, $appRwOwnedBy.Id) `
+		-ClientApplicationIds @("all") | Out-Null
 	Write-Host "  Application include created."
+}
+
+# Remove stale application includes (e.g. a previous Group.Read.All grant) so the policy only allows the expected set.
+# This runs after the expected include exists because Graph rejects removing the last include of a policy.
+$staleAppIncludes = @(Get-MgPolicyPermissionGrantPolicyInclude -PermissionGrantPolicyId $policyId -ErrorAction SilentlyContinue) | Where-Object {
+	$_.PermissionType -eq "application" -and
+	$_.ResourceApplication -eq $graphSp.AppId -and
+	(Compare-Object -ReferenceObject $expectedAppPermissions -DifferenceObject @($_.Permissions | Sort-Object))
+}
+foreach ($stale in $staleAppIncludes) {
+	Remove-MgPolicyPermissionGrantPolicyInclude -PermissionGrantPolicyId $policyId -PermissionGrantConditionSetId $stale.Id
+	Write-Host "  Removed stale application include $($stale.Id) (permissions: $($stale.Permissions -join ', '))."
 }
 
 # Ensure include for delegated email/openid/profile scopes exists (idempotent)
@@ -110,7 +125,7 @@ if ($existingDelegatedInclude) {
 		-PermissionType "delegated" `
 		-ResourceApplication $graphSp.AppId `
 		-Permissions @($emailScope.Id, $openidScope.Id, $profileScope.Id) `
-		-ClientApplicationIds @("all")
+		-ClientApplicationIds @("all") | Out-Null
 	Write-Host "  Delegated include created for scopes: email, openid, profile"
 }
 
@@ -183,7 +198,7 @@ if ($existingAssignment) {
 }
 
 Write-Host ""
-Write-Host "Bootstrap complete. The GHA SP can now grant Group.Read.All + Application.ReadWrite.OwnedBy and delegated email/openid/profile via the limited consent policy."
+Write-Host "Bootstrap complete. The GHA SP can now grant GroupMember.Read.All + Application.ReadWrite.OwnedBy and delegated email/openid/profile via the limited consent policy."
 Write-Host ""
 
 # --- Set GitHub Repository Variables from tofu outputs ---
