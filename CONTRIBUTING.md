@@ -4,7 +4,7 @@
 
 - [Go](https://go.dev/dl/) (version in `go.mod`)
 - [Task](https://taskfile.dev/) (v3+)
-- [prek](https://github.com/j178/prek) (v0.5.7+)
+- [prek](https://github.com/j178/prek) (v0.5.9+)
 - [ko](https://ko.build/) (v0.19.1)
 - [Helm](https://helm.sh/) (v4.3.1)
 - [git-cliff](https://git-cliff.org/) (v2.14.2)
