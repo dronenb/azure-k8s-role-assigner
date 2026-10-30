@@ -108,9 +108,16 @@ func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&corev1.ConfigMap{}, builder.WithPredicates(cmPredicate))
 
 	if hasArgoCDResourceSource(sources) {
-		argoCD := &unstructured.Unstructured{}
-		argoCD.SetGroupVersionKind(argoCDGVK)
-		b = b.Watches(argoCD, &handler.EnqueueRequestForObject{}, builder.WithPredicates(argoCDPredicate))
+		if _, err := mgr.GetRESTMapper().RESTMapping(argoCDGVK.GroupKind(), argoCDGVK.Version); err != nil {
+			if !apierrutil.IsNoMatchError(err) {
+				return fmt.Errorf("failed to discover ArgoCD resource: %w", err)
+			}
+			log.Log.Info("ArgoCD CRD not found; ArgoCD resource watch disabled")
+		} else {
+			argoCD := &unstructured.Unstructured{}
+			argoCD.SetGroupVersionKind(argoCDGVK)
+			b = b.Watches(argoCD, &handler.EnqueueRequestForObject{}, builder.WithPredicates(argoCDPredicate))
+		}
 	}
 
 	if hasAppProjectSource(sources) {
@@ -191,7 +198,7 @@ func (r *ArgoCDReconciler) buildArgoCDSourceDesiredGroupIDs(ctx context.Context,
 		argoCD.SetGroupVersionKind(argoCDGVK)
 		argoCDKey := types.NamespacedName{Namespace: source.ResourceNamespace, Name: source.ResourceName}
 		if err := r.Get(ctx, argoCDKey, argoCD); err != nil {
-			if apierrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) || apierrutil.IsNoMatchError(err) {
 				logger.Info("ArgoCD resource not found; desired Argo CD RBAC groups are empty", "namespace", source.ResourceNamespace, "name", source.ResourceName)
 				return r.resolveCandidateGroupIDs(ctx, candidates)
 			}
