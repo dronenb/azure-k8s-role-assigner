@@ -7,10 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 const (
@@ -190,6 +192,39 @@ func TestArgoCDReconcile_MissingArgoCDResourceRemovesAssignments(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		argocdRBACConfigMapInNamespace("team-a", "g, "+groupA+", role:admin"),
 	).Build()
+	argocdReconciler := &ArgoCDReconciler{
+		ResourceNamespace:  "team-a",
+		ResourceName:       "argocd-a",
+		ConfigMapName:      argocdRBACName,
+		AppProjectsEnabled: true,
+	}
+	state := &StateReconciler{
+		Client:               c,
+		Scheme:               scheme,
+		AzureClient:          azm,
+		BuildDesiredGroupIDs: argocdReconciler.BuildArgoCDDesiredGroupIDs,
+	}
+	argocdReconciler.StateReconciler = state
+
+	require.NoError(t, state.reconcileDesiredState(context.Background()))
+
+	assert.Equal(t, []string{groupA}, azm.removeCalls)
+	assert.Empty(t, azm.assignedSet())
+}
+
+func TestArgoCDReconcile_MissingArgoCDCRDRemovesAssignments(t *testing.T) {
+	azm := newFakeAzureManager(groupA)
+	scheme := testScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		argocdRBACConfigMapInNamespace("team-a", "g, "+groupA+", role:admin"),
+	).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if obj.GetObjectKind().GroupVersionKind() == argoCDGVK {
+				return &apimeta.NoKindMatchError{GroupKind: argoCDGVK.GroupKind(), SearchedVersions: []string{argoCDGVK.Version}}
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
 	argocdReconciler := &ArgoCDReconciler{
 		ResourceNamespace:  "team-a",
 		ResourceName:       "argocd-a",
