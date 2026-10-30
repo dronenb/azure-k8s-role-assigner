@@ -7,9 +7,8 @@ import (
 
 	appmetrics "github.com/dronenb/azure-k8s-role-assigner/internal/metrics"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -29,31 +28,14 @@ type RoleBindingReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch
 
 // Reconcile converges Azure group assignments against the full set of live
-// bindings. The specific object in the request is not used directly; any event
-// (create, update, delete) simply triggers a full-state reconcile.
-func (r *RoleBindingReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+// bindings. Every relevant RoleBinding event maps to the same request, so the
+// request itself carries no information.
+func (r *RoleBindingReconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
 	start := time.Now()
 	var reconcileErr error
 	defer func() {
 		appmetrics.ObserveReconcile("rolebinding", start, reconcileErr)
 	}()
-
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling RoleBinding", "namespace", req.Namespace, "name", req.Name)
-
-	// Confirm whether the object still exists purely for logging/clarity. Its
-	// contents are not needed: reconcileDesiredState rebuilds desired state from
-	// all live bindings, so a deleted binding's groups are naturally dropped.
-	roleBinding := &rbacv1.RoleBinding{}
-	if err := r.Get(ctx, req.NamespacedName, roleBinding); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("RoleBinding not found, likely deleted; running full-state reconcile", "namespace", req.Namespace, "name", req.Name)
-		} else {
-			logger.Error(err, "Failed to get RoleBinding")
-			reconcileErr = err
-			return reconcile.Result{}, err
-		}
-	}
 
 	if err := r.reconcileDesiredState(ctx); err != nil {
 		reconcileErr = err
@@ -63,9 +45,11 @@ func (r *RoleBindingReconciler) Reconcile(ctx context.Context, req reconcile.Req
 	return reconcile.Result{RequeueAfter: r.ResyncPeriod}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager
+// SetupWithManager sets up the controller with the Manager.
 func (r *RoleBindingReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&rbacv1.RoleBinding{}).
+		Named("rolebinding").
+		Watches(&rbacv1.RoleBinding{}, enqueueFullState, builder.WithPredicates(bindingGroupPredicate)).
+		WatchesRawSource(initialFullState).
 		Complete(r)
 }
