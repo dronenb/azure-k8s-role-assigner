@@ -333,7 +333,7 @@ tasks:
           SA_KEY_FILE="${repo_root}/{{.SA_KEY_FILE}}" \
           MAX_ATTEMPTS="{{.MAX_ATTEMPTS | default "30"}}" \
           SLEEP_SECONDS="{{.SLEEP_SECONDS | default "10"}}" \
-          go test ./e2e -run TestE2E -count=1 -- -ginkgo.v -ginkgo.label-filter='!destructive'
+          go test ./e2e -run TestE2E -count=1 -ginkgo.v -ginkgo.label-filter='!destructive'
         # Destructive specs (e.g. removing the ArgoCD CRD) run last so they
         # cannot affect the specs above.
         E2E=true \
@@ -347,7 +347,7 @@ tasks:
           E2E_NS="{{.E2E_NS}}" \
           MAX_ATTEMPTS="{{.MAX_ATTEMPTS | default "30"}}" \
           SLEEP_SECONDS="{{.SLEEP_SECONDS | default "10"}}" \
-          go test ./e2e -run TestE2E -count=1 -- -ginkgo.v -ginkgo.label-filter='destructive'
+          go test ./e2e -run TestE2E -count=1 -ginkgo.v -ginkgo.label-filter='destructive'
     preconditions:
       - sh: '[ -n "{{.E2E_TEST_USER_UPN}}" ] && [ -n "{{.TEST_GROUP_CRB_ID}}" ] && [ -n "{{.TEST_GROUP_RB_ID}}" ] && [ -n "{{.TEST_GROUP_ARGOCD_CONFIGMAP_ID}}" ] && [ -n "{{.TEST_GROUP_ARGOCD_APPPROJECT_ID}}" ]'
         msg: "E2E_TEST_USER_UPN, TEST_GROUP_CRB_ID, TEST_GROUP_RB_ID, TEST_GROUP_ARGOCD_CONFIGMAP_ID, TEST_GROUP_ARGOCD_APPPROJECT_ID must be set (see TESTING.md)"
