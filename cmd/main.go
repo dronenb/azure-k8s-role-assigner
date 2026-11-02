@@ -48,8 +48,11 @@ func main() {
 	flag.DurationVar(&resyncPeriod, "resync-period", 10*time.Minute,
 		"Interval at which a full-state reconcile is requeued when no binding events occur. "+
 			"This ensures Azure assignments for deleted bindings are eventually removed even without watch events.")
+	// Production defaults: structured JSON at Info level. Raise verbosity with
+	// --zap-log-level=1 (per-pass summaries) or =2 (every binding examined), and
+	// opt into the development encoder with --zap-devel.
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()

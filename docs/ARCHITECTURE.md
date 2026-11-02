@@ -165,5 +165,7 @@ Given the requirement to keep permissions narrow and implementation simple, peri
   - `internal/controller/rolebinding_controller.go`
 - ClusterRoleBinding reconciler:
   - `internal/controller/clusterrolebinding_controller.go`
+- Binding event filtering and the shared full-state work item:
+  - `internal/controller/binding_events.go`
 - Azure Graph client (assignment, removal, listing managed assignments):
   - `internal/azure/client.go`

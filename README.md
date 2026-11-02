@@ -375,6 +375,19 @@ The AppProject watcher is tolerant of clusters without the `argoproj.io` AppProj
 - `--health-probe-bind-address`: Address for health probes (default: `:8081`)
 - `--leader-elect`: Enable leader election for high availability (enabled by default in the deployment)
 - `--resync-period`: Interval for periodic full-state reconciliation (default: `10m`)
+- `--zap-log-level`: Log level. `info` (default) logs only real Azure changes and failures. `1` adds a summary per reconcile pass. `2` adds every binding examined.
+
+### Logging
+
+At the default `info` level the controller is quiet: it logs startup, configuration, and each Azure assignment or removal it actually performs, successful or failed. A pass where Azure already matches the bindings logs nothing. Raise verbosity with `logging.level` in the Helm chart (`--zap-log-level`):
+
+| Level | What you get |
+| ----- | ------------ |
+| `info` | Startup, real Azure writes and failures only |
+| `1` | One summary per pass: desired, actual, assigned and removed counts, plus groups skipped because they were already assigned |
+| `2` | Every binding examined, each group reference found, and ignored bindings and groups |
+
+`logging.development: true` (`--zap-devel`) switches to the human-readable console encoder; the default is structured JSON.
 
 ## Development
 

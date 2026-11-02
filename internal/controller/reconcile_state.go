@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	appmetrics "github.com/dronenb/azure-k8s-role-assigner/internal/metrics"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
@@ -74,6 +75,7 @@ type StateReconciler struct {
 // groups simply no longer appear in the desired set and are removed from Azure.
 func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 	logger := log.FromContext(ctx)
+	started := time.Now()
 
 	// Serialize convergence across the RoleBinding and ClusterRoleBinding
 	// reconcilers, which share this StateReconciler.
@@ -107,12 +109,15 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 	groupsToAssign := make(map[string]struct{})
 	groupsToRemove := make(map[string]struct{})
 	actualAfter := make(map[string]struct{})
+	assignedCount := 0
+	removedCount := 0
 	for _, spID := range spIDs {
 		assigned := actual[spID]
 
 		for groupID := range desired {
 			if _, ok := assigned[groupID]; ok {
 				actualAfter[groupID] = struct{}{}
+				logger.V(2).Info("Ignoring group because it is already assigned", "groupID", groupID, "servicePrincipalID", spID)
 				continue
 			}
 			groupsToAssign[groupID] = struct{}{}
@@ -122,6 +127,7 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 				continue
 			}
 			actualAfter[groupID] = struct{}{}
+			assignedCount++
 			logger.Info("Assigned group to service principal", "groupID", groupID, "servicePrincipalID", spID)
 		}
 
@@ -136,9 +142,17 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 				actualAfter[groupID] = struct{}{}
 				continue
 			}
+			removedCount++
 			logger.Info("Removed group no longer referenced by any binding from service principal", "groupID", groupID, "servicePrincipalID", spID)
 		}
 	}
+
+	logger.V(1).Info("Reconciled group assignments",
+		"desired", len(desired),
+		"actual", len(actualAfter),
+		"assigned", assignedCount,
+		"removed", removedCount,
+		"duration", time.Since(started).String())
 
 	appmetrics.ReconcileGroupsEnsured.Set(float64(len(groupsToAssign)))
 	appmetrics.ReconcileGroupsToRemove.Set(float64(len(groupsToRemove)))
@@ -164,23 +178,28 @@ func (r *StateReconciler) buildKubernetesDesiredGroupIDs(ctx context.Context) (m
 	}
 
 	// Collect candidate group IDs (Azure UUIDs) from every live binding.
+	logger := log.FromContext(ctx)
 	candidates := make(map[string]struct{})
 	for i := range roleBindings.Items {
 		rb := &roleBindings.Items[i]
 		if !rb.DeletionTimestamp.IsZero() {
+			logger.V(2).Info("Ignoring binding that is being deleted", "kind", "RoleBinding", "namespace", rb.Namespace, "name", rb.Name)
 			continue
 		}
 		for _, groupID := range extractGroupsFromSubjects(rb.Subjects, "rolebinding") {
 			candidates[groupID] = struct{}{}
+			logger.V(2).Info("Found group reference in binding", "kind", "RoleBinding", "namespace", rb.Namespace, "name", rb.Name, "groupID", groupID)
 		}
 	}
 	for i := range clusterRoleBindings.Items {
 		crb := &clusterRoleBindings.Items[i]
 		if !crb.DeletionTimestamp.IsZero() {
+			logger.V(2).Info("Ignoring binding that is being deleted", "kind", "ClusterRoleBinding", "name", crb.Name)
 			continue
 		}
 		for _, groupID := range extractGroupsFromSubjects(crb.Subjects, "clusterrolebinding") {
 			candidates[groupID] = struct{}{}
+			logger.V(2).Info("Found group reference in binding", "kind", "ClusterRoleBinding", "name", crb.Name, "groupID", groupID)
 		}
 	}
 
@@ -196,13 +215,13 @@ func (r *StateReconciler) resolveCandidateGroupIDs(ctx context.Context, candidat
 		group, err := r.AzureClient.GetGroupByID(ctx, groupID)
 		if err != nil {
 			appmetrics.GroupLookupTotal.WithLabelValues(appmetrics.ClassifyAzureError(err)).Inc()
-			logger.Error(err, "Failed to find group in Azure; skipping", "groupID", groupID)
+			logger.V(1).Error(err, "Failed to find group in Azure; skipping", "groupID", groupID)
 			continue
 		}
 		resolvedGroupID := group.GetId()
 		if resolvedGroupID == nil {
 			appmetrics.GroupLookupTotal.WithLabelValues("error").Inc()
-			logger.Error(fmt.Errorf("group ID is nil"), "Resolved group ID is nil; skipping", "groupID", groupID)
+			logger.V(1).Error(fmt.Errorf("group ID is nil"), "Resolved group ID is nil; skipping", "groupID", groupID)
 			continue
 		}
 		appmetrics.GroupLookupTotal.WithLabelValues("success").Inc()
