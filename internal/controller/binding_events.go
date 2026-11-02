@@ -1,3 +1,6 @@
+// Package controller contains Kubernetes reconcilers that keep Microsoft Entra
+// group assignments in sync with RoleBinding, ClusterRoleBinding and Argo CD
+// RBAC sources.
 package controller
 
 import (
