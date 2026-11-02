@@ -19,11 +19,21 @@ Out of scope:
 
 ## High-Level Flow
 
-Reconciliation is level-based and full-state. Any event on a `RoleBinding` or
-`ClusterRoleBinding` (create, update, delete) triggers a single convergence pass
-that rebuilds the complete desired state from all live bindings. The specific
-object in the reconcile request is not read for its contents; a deleted binding
-simply no longer contributes groups to the desired set.
+Reconciliation is level-based and full-state. Relevant events on a `RoleBinding`
+or `ClusterRoleBinding` trigger a single convergence pass that rebuilds the
+complete desired state from all live bindings. Every event maps to the same
+work item, so the workqueue coalesces bursts of events into one pass and only
+one resync timer exists per controller. A pass is also queued once at startup.
+
+Events are filtered before they reach the queue:
+
+- Create and delete events only count if the binding has at least one `Group`
+  subject whose name is a valid Azure UUID.
+- Update events only count if that set of group subjects changed, or the
+  binding started deleting. Metadata-only churn (labels, annotations, managed
+  fields, status) is ignored.
+
+Argo CD sources use the same single-work-item model.
 
 Each convergence pass:
 

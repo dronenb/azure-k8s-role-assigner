@@ -19,7 +19,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -57,15 +56,12 @@ type ArgoCDSource struct {
 // +kubebuilder:rbac:groups=argoproj.io,resources=appprojects,verbs=get;list;watch
 
 // Reconcile converges Azure group assignments against all configured Argo CD RBAC sources.
-func (r *ArgoCDReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *ArgoCDReconciler) Reconcile(ctx context.Context, _ reconcile.Request) (reconcile.Result, error) {
 	start := time.Now()
 	var reconcileErr error
 	defer func() {
 		appmetrics.ObserveReconcile("argocd", start, reconcileErr)
 	}()
-
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Argo CD RBAC", "namespace", req.Namespace, "name", req.Name)
 
 	if err := r.reconcileDesiredState(ctx); err != nil {
 		reconcileErr = err
@@ -105,7 +101,8 @@ func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named(r.controllerName()).
-		For(&corev1.ConfigMap{}, builder.WithPredicates(cmPredicate))
+		Watches(&corev1.ConfigMap{}, enqueueFullState, builder.WithPredicates(cmPredicate)).
+		WatchesRawSource(initialFullState)
 
 	if hasArgoCDResourceSource(sources) {
 		if _, err := mgr.GetRESTMapper().RESTMapping(argoCDGVK.GroupKind(), argoCDGVK.Version); err != nil {
@@ -116,7 +113,7 @@ func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		} else {
 			argoCD := &unstructured.Unstructured{}
 			argoCD.SetGroupVersionKind(argoCDGVK)
-			b = b.Watches(argoCD, &handler.EnqueueRequestForObject{}, builder.WithPredicates(argoCDPredicate))
+			b = b.Watches(argoCD, enqueueFullState, builder.WithPredicates(argoCDPredicate))
 		}
 	}
 
@@ -129,7 +126,7 @@ func (r *ArgoCDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		} else {
 			appProject := &unstructured.Unstructured{}
 			appProject.SetGroupVersionKind(appProjectGVK)
-			b = b.Watches(appProject, &handler.EnqueueRequestForObject{}, builder.WithPredicates(appProjectPredicate))
+			b = b.Watches(appProject, enqueueFullState, builder.WithPredicates(appProjectPredicate))
 		}
 	}
 
