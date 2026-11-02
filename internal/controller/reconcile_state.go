@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -27,13 +28,13 @@ type DesiredGroupBuilder func(ctx context.Context) (map[string]struct{}, error)
 type AzureGroupManager interface {
 	// GetGroupByID resolves an Azure group by its object ID.
 	GetGroupByID(ctx context.Context, groupID string) (models.Groupable, error)
-	// AssignGroupToServicePrincipals assigns a group to all configured service principals.
-	AssignGroupToServicePrincipals(ctx context.Context, groupID string) error
-	// RemoveGroupFromServicePrincipals removes a group assignment from all configured service principals.
-	RemoveGroupFromServicePrincipals(ctx context.Context, groupID string) error
-	// ListManagedAssignedGroupIDs returns the set of group IDs currently assigned
-	// to the configured service principals via this controller's app role.
-	ListManagedAssignedGroupIDs(ctx context.Context) (map[string]struct{}, error)
+	// AssignGroupToServicePrincipal assigns a group to one service principal.
+	AssignGroupToServicePrincipal(ctx context.Context, spID, groupID string) error
+	// RemoveGroupFromServicePrincipal removes a group assignment from one service principal.
+	RemoveGroupFromServicePrincipal(ctx context.Context, spID, groupID string) error
+	// ListManagedAssignments returns, per configured service principal, the set
+	// of group IDs assigned via this controller's app role.
+	ListManagedAssignments(ctx context.Context) (map[string]map[string]struct{}, error)
 }
 
 // StateReconciler holds the shared state and logic used by both the
@@ -89,45 +90,59 @@ func (r *StateReconciler) reconcileDesiredState(ctx context.Context) error {
 		return err
 	}
 	appmetrics.ReconcileGroupsDesired.Set(float64(len(desired)))
-	appmetrics.ReconcileGroupsEnsured.Set(float64(len(desired)))
 
-	// Assign every desired group. Assignment is idempotent in Azure, so
-	// re-assigning already-assigned groups is a no-op.
-	for groupID := range desired {
-		if err := r.AzureClient.AssignGroupToServicePrincipals(ctx, groupID); err != nil {
-			logger.Error(err, "Failed to assign group to service principals", "groupID", groupID)
-			// Continue processing other groups even if one fails; the next
-			// reconcile will retry.
-			continue
-		}
-		logger.Info("Ensured group is assigned to service principals", "groupID", groupID)
-	}
-
-	// Determine the actual set of groups currently assigned via this
-	// controller's app role, and remove any that are no longer desired.
-	actual, err := r.AzureClient.ListManagedAssignedGroupIDs(ctx)
+	// Read the actual state once, per service principal, then act only on the
+	// difference. Already-correct assignments cost no further Graph calls.
+	actual, err := r.AzureClient.ListManagedAssignments(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list managed group assignments from Azure: %w", err)
 	}
 
-	groupsToRemove := 0
-	groupsRemoved := 0
-	for groupID := range actual {
-		if _, stillDesired := desired[groupID]; stillDesired {
-			continue
-		}
-		groupsToRemove++
-		logger.Info("Group is no longer referenced by any binding, removing from Azure", "groupID", groupID)
-		if err := r.AzureClient.RemoveGroupFromServicePrincipals(ctx, groupID); err != nil {
-			logger.Error(err, "Failed to remove group from service principals", "groupID", groupID)
-			// Continue removing other stale groups; the next reconcile retries.
-			continue
-		}
-		groupsRemoved++
-		logger.Info("Successfully removed group from Azure", "groupID", groupID)
+	spIDs := make([]string, 0, len(actual))
+	for spID := range actual {
+		spIDs = append(spIDs, spID)
 	}
-	appmetrics.ReconcileGroupsToRemove.Set(float64(groupsToRemove))
-	appmetrics.ReconcileGroupsActual.Set(float64(len(actual) - groupsRemoved))
+	sort.Strings(spIDs)
+
+	groupsToAssign := make(map[string]struct{})
+	groupsToRemove := make(map[string]struct{})
+	actualAfter := make(map[string]struct{})
+	for _, spID := range spIDs {
+		assigned := actual[spID]
+
+		for groupID := range desired {
+			if _, ok := assigned[groupID]; ok {
+				actualAfter[groupID] = struct{}{}
+				continue
+			}
+			groupsToAssign[groupID] = struct{}{}
+			if err := r.AzureClient.AssignGroupToServicePrincipal(ctx, spID, groupID); err != nil {
+				// Continue with other groups; the next reconcile retries.
+				logger.Error(err, "Failed to assign group to service principal", "groupID", groupID, "servicePrincipalID", spID)
+				continue
+			}
+			actualAfter[groupID] = struct{}{}
+			logger.Info("Assigned group to service principal", "groupID", groupID, "servicePrincipalID", spID)
+		}
+
+		for groupID := range assigned {
+			if _, ok := desired[groupID]; ok {
+				continue
+			}
+			groupsToRemove[groupID] = struct{}{}
+			if err := r.AzureClient.RemoveGroupFromServicePrincipal(ctx, spID, groupID); err != nil {
+				// Continue with other groups; the next reconcile retries.
+				logger.Error(err, "Failed to remove group from service principal", "groupID", groupID, "servicePrincipalID", spID)
+				actualAfter[groupID] = struct{}{}
+				continue
+			}
+			logger.Info("Removed group no longer referenced by any binding from service principal", "groupID", groupID, "servicePrincipalID", spID)
+		}
+	}
+
+	appmetrics.ReconcileGroupsEnsured.Set(float64(len(groupsToAssign)))
+	appmetrics.ReconcileGroupsToRemove.Set(float64(len(groupsToRemove)))
+	appmetrics.ReconcileGroupsActual.Set(float64(len(actualAfter)))
 
 	return nil
 }

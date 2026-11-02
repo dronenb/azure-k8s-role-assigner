@@ -41,11 +41,13 @@ Each convergence pass:
    are being deleted).
 2. Extracts candidate group IDs from `subjects[].name` where `kind=Group`.
 3. Filters candidates to valid Azure UUIDs only.
-4. Resolves each candidate against Microsoft Entra ID to its canonical object ID and
-   assigns it to the configured service principals.
-5. Lists the groups currently assigned to those service principals via the
-   controller's app role, and removes any that are no longer in the desired set.
-6. Requeues after a configurable resync period (`--resync-period`, default 10m)
+4. Resolves each candidate against Microsoft Entra ID to its canonical object ID.
+5. Lists the groups currently assigned to each configured service principal via
+   the controller's app role (one Graph list call per service principal).
+6. For each service principal, assigns desired groups it is missing and removes
+   assigned groups that are no longer desired. Groups that are already correct
+   cost no further Graph calls.
+7. Requeues after a configurable resync period (`--resync-period`, default 10m)
    for full convergence, so deletions are reconciled even if no binding events
    arrive.
 
@@ -103,14 +105,14 @@ During each reconciliation, the controller:
 1. Lists all `RoleBinding` resources.
 2. Lists all `ClusterRoleBinding` resources.
 3. Builds the desired set of Azure group assignments from all live bindings (the union of referenced groups).
-4. Lists the groups actually assigned to the configured service principals via the controller's app role.
-5. Removes an Azure assignment only when the group is present in the actual set but absent from the desired set.
+4. Lists the groups actually assigned to each configured service principal via the controller's app role.
+5. Assigns a group to a service principal only when it is desired but missing there, and removes it only when it is assigned there but absent from the desired set.
 
 Because desired state is the union across all bindings, a group that is still referenced by any other binding remains assigned; this prevents premature de-assignment when multiple bindings share the same group. Because the actual set is read from Azure (scoped to the controller's app role), assignments whose bindings disappeared while the controller was down are also reconciled away on the next pass, preventing cloud-side orphaning. Removal is restricted to assignments created with the controller's configured app role, so assignments made by other means are never touched.
 
 ## Conflict Handling and Idempotency
 
-- Azure assignment calls are effectively idempotent in practice; "already exists" conditions are logged and reconciliation continues.
+- Assignment is driven by a diff against the listed state, so in-sync assignments are not re-written. If Graph still reports an assignment as already existing (for example after a concurrent change), it is treated as success.
 - Group-level failures do not abort processing of other groups in the same convergence pass.
 - Reconciles are level-based and periodic, so retries naturally converge when transient failures clear.
 

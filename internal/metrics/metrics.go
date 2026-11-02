@@ -69,7 +69,7 @@ var (
 		prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "reconcile_groups_ensured",
-			Help:      "Number of desired groups the controller attempted to ensure during the last reconciliation.",
+			Help:      "Number of desired groups missing from at least one service principal during the last reconciliation.",
 		},
 	)
 
