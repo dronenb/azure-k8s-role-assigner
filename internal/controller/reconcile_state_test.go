@@ -224,3 +224,34 @@ func TestBuildDesiredGroupIDs_ListRoleBindingsErrorPropagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "list rolebindings")
 }
+
+func TestReconcileDesiredState_NoAzureWritesWhenInSync(t *testing.T) {
+	azm := newFakeAzureManager(groupA, groupB)
+	r := newStateReconciler(
+		azm,
+		clusterRoleBinding("crb-a", groupA),
+		roleBinding("ns1", "rb-b", groupB),
+	)
+
+	require.NoError(t, r.reconcileDesiredState(context.Background()))
+
+	assert.Empty(t, azm.assignCalls, "already-assigned groups must not be re-assigned")
+	assert.Empty(t, azm.removeCalls)
+	assert.Equal(t, 1, azm.listCalls, "actual state is read once per pass")
+}
+
+func TestReconcileDesiredState_RepairsGroupMissingFromOneServicePrincipal(t *testing.T) {
+	const spA = "11111111-1111-1111-1111-111111111111"
+	const spB = "22222222-2222-2222-2222-222222222222"
+	azm := newFakeAzureManagerForSPs(spA, spB)
+	azm.assigned[spA][groupA] = struct{}{}
+	azm.assigned[spB][groupC] = struct{}{}
+	r := newStateReconciler(azm, clusterRoleBinding("crb-a", groupA))
+
+	require.NoError(t, r.reconcileDesiredState(context.Background()))
+
+	assert.Equal(t, []string{groupA}, azm.assignCalls, "only the service principal missing the group is written")
+	assert.Equal(t, []string{groupC}, azm.removeCalls, "stale group is removed from the service principal that has it")
+	assert.Equal(t, map[string]struct{}{groupA: {}}, azm.assigned[spA])
+	assert.Equal(t, map[string]struct{}{groupA: {}}, azm.assigned[spB])
+}

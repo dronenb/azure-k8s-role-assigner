@@ -21,10 +21,10 @@ var errGroupNotFound = errors.New("group not found in Azure")
 type fakeAzureManager struct {
 	mu sync.Mutex
 
-	// assigned is the set of group IDs currently assigned in Azure. It seeds
-	// ListManagedAssignedGroupIDs and is updated by Assign/Remove calls so the
-	// fake behaves like a real, idempotent backend.
-	assigned map[string]struct{}
+	// assigned is, per service principal ID, the set of group IDs currently
+	// assigned in Azure. It seeds ListManagedAssignments and is updated by
+	// Assign/Remove calls so the fake behaves like a real backend.
+	assigned map[string]map[string]struct{}
 
 	// assignCalls and removeCalls record the group IDs passed to the respective
 	// methods, in call order, for assertions.
@@ -39,27 +39,44 @@ type fakeAzureManager struct {
 	// is nil (simulating a malformed Graph response).
 	nilIDGroups map[string]struct{}
 
-	// assignErr, if set, is returned by AssignGroupToServicePrincipals for the
+	// assignErr, if set, is returned by AssignGroupToServicePrincipal for the
 	// matching group ID.
 	assignErr map[string]error
-	// removeErr, if set, is returned by RemoveGroupFromServicePrincipals for the
+	// removeErr, if set, is returned by RemoveGroupFromServicePrincipal for the
 	// matching group ID.
 	removeErr map[string]error
 
-	// listErr, if set, is returned by ListManagedAssignedGroupIDs.
+	// listErr, if set, is returned by ListManagedAssignments.
 	listErr error
+	// listCalls counts ListManagedAssignments calls.
+	listCalls int
 }
 
+// fakeSP is the service principal used by fakes created with newFakeAzureManager.
+const fakeSP = "11111111-1111-1111-1111-111111111111"
+
+// newFakeAzureManager returns a fake with a single service principal that
+// already has the given groups assigned.
 func newFakeAzureManager(alreadyAssigned ...string) *fakeAzureManager {
+	f := newFakeAzureManagerForSPs(fakeSP)
+	for _, id := range alreadyAssigned {
+		f.assigned[fakeSP][id] = struct{}{}
+	}
+	return f
+}
+
+// newFakeAzureManagerForSPs returns a fake with the given service principals
+// and no assignments.
+func newFakeAzureManagerForSPs(spIDs ...string) *fakeAzureManager {
 	f := &fakeAzureManager{
-		assigned:      make(map[string]struct{}),
+		assigned:      make(map[string]map[string]struct{}, len(spIDs)),
 		unknownGroups: make(map[string]struct{}),
 		nilIDGroups:   make(map[string]struct{}),
 		assignErr:     make(map[string]error),
 		removeErr:     make(map[string]error),
 	}
-	for _, id := range alreadyAssigned {
-		f.assigned[id] = struct{}{}
+	for _, spID := range spIDs {
+		f.assigned[spID] = make(map[string]struct{})
 	}
 	return f
 }
@@ -80,7 +97,7 @@ func (f *fakeAzureManager) GetGroupByID(_ context.Context, groupID string) (mode
 	return group, nil
 }
 
-func (f *fakeAzureManager) AssignGroupToServicePrincipals(_ context.Context, groupID string) error {
+func (f *fakeAzureManager) AssignGroupToServicePrincipal(_ context.Context, spID, groupID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -88,11 +105,11 @@ func (f *fakeAzureManager) AssignGroupToServicePrincipals(_ context.Context, gro
 	if err, ok := f.assignErr[groupID]; ok {
 		return err
 	}
-	f.assigned[groupID] = struct{}{}
+	f.assigned[spID][groupID] = struct{}{}
 	return nil
 }
 
-func (f *fakeAzureManager) RemoveGroupFromServicePrincipals(_ context.Context, groupID string) error {
+func (f *fakeAzureManager) RemoveGroupFromServicePrincipal(_ context.Context, spID, groupID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -100,31 +117,50 @@ func (f *fakeAzureManager) RemoveGroupFromServicePrincipals(_ context.Context, g
 	if err, ok := f.removeErr[groupID]; ok {
 		return err
 	}
-	delete(f.assigned, groupID)
+	delete(f.assigned[spID], groupID)
 	return nil
 }
 
-func (f *fakeAzureManager) ListManagedAssignedGroupIDs(_ context.Context) (map[string]struct{}, error) {
+func (f *fakeAzureManager) ListManagedAssignments(_ context.Context) (map[string]map[string]struct{}, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.listCalls++
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	out := make(map[string]struct{}, len(f.assigned))
-	for id := range f.assigned {
-		out[id] = struct{}{}
+	out := make(map[string]map[string]struct{}, len(f.assigned))
+	for spID, groups := range f.assigned {
+		copied := make(map[string]struct{}, len(groups))
+		for id := range groups {
+			copied[id] = struct{}{}
+		}
+		out[spID] = copied
 	}
 	return out, nil
 }
 
-// assignedList returns a sorted snapshot of currently-assigned group IDs.
+// assignedSet returns the groups assigned to every service principal.
 func (f *fakeAzureManager) assignedSet() map[string]struct{} {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make(map[string]struct{}, len(f.assigned))
-	for id := range f.assigned {
-		out[id] = struct{}{}
+	var out map[string]struct{}
+	for _, groups := range f.assigned {
+		if out == nil {
+			out = make(map[string]struct{}, len(groups))
+			for id := range groups {
+				out[id] = struct{}{}
+			}
+			continue
+		}
+		for id := range out {
+			if _, ok := groups[id]; !ok {
+				delete(out, id)
+			}
+		}
+	}
+	if out == nil {
+		out = map[string]struct{}{}
 	}
 	return out
 }

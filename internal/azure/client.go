@@ -103,47 +103,33 @@ func (c *Client) GetGroupByID(ctx context.Context, groupID string) (models.Group
 	return group, nil
 }
 
-// AssignGroupToServicePrincipals assigns a group to all configured service principals
-func (c *Client) AssignGroupToServicePrincipals(ctx context.Context, groupID string) error {
-	var errs []error
-
-	for _, spID := range c.servicePrincipals {
-		if err := c.assignGroupToServicePrincipal(ctx, spID, groupID); err != nil {
-			if errors.Is(err, errAssignmentAlreadyExists) {
-				appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", "already_exists").Inc()
-				continue
-			}
-			appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", appmetrics.ClassifyAzureError(err)).Inc()
-			errs = append(errs, fmt.Errorf("failed to assign group %s to SP %s: %w", groupID, spID, err))
-		} else {
-			appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", "success").Inc()
-		}
+// AssignGroupToServicePrincipal creates the app role assignment for one group
+// on one service principal. Callers are expected to have already checked the
+// current state via ListManagedAssignments, so no pre-read is performed; an
+// "already assigned" response from Graph is treated as success.
+func (c *Client) AssignGroupToServicePrincipal(ctx context.Context, spID, groupID string) error {
+	err := c.createAssignment(ctx, spID, groupID)
+	switch {
+	case err == nil:
+		appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", "success").Inc()
+		return nil
+	case errors.Is(err, errAssignmentAlreadyExists):
+		appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", "already_exists").Inc()
+		return nil
+	default:
+		appmetrics.AssignmentOperationsTotal.WithLabelValues("assign", appmetrics.ClassifyAzureError(err)).Inc()
+		return fmt.Errorf("failed to assign group %s to SP %s: %w", groupID, spID, err)
 	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("errors assigning group: %v", errs)
-	}
-
-	return nil
 }
 
-// RemoveGroupFromServicePrincipals removes a group assignment from all configured service principals
-func (c *Client) RemoveGroupFromServicePrincipals(ctx context.Context, groupID string) error {
-	var errs []error
-
-	for _, spID := range c.servicePrincipals {
-		if err := c.removeGroupFromServicePrincipal(ctx, spID, groupID); err != nil {
-			appmetrics.AssignmentOperationsTotal.WithLabelValues("remove", appmetrics.ClassifyAzureError(err)).Inc()
-			errs = append(errs, fmt.Errorf("failed to remove group %s from SP %s: %w", groupID, spID, err))
-		} else {
-			appmetrics.AssignmentOperationsTotal.WithLabelValues("remove", "success").Inc()
-		}
+// RemoveGroupFromServicePrincipal removes the assignment for one group from one
+// service principal.
+func (c *Client) RemoveGroupFromServicePrincipal(ctx context.Context, spID, groupID string) error {
+	if err := c.removeGroupFromServicePrincipal(ctx, spID, groupID); err != nil {
+		appmetrics.AssignmentOperationsTotal.WithLabelValues("remove", appmetrics.ClassifyAzureError(err)).Inc()
+		return fmt.Errorf("failed to remove group %s from SP %s: %w", groupID, spID, err)
 	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("errors removing group: %v", errs)
-	}
-
+	appmetrics.AssignmentOperationsTotal.WithLabelValues("remove", "success").Inc()
 	return nil
 }
 
@@ -184,19 +170,8 @@ func (c *Client) removeGroupFromServicePrincipal(ctx context.Context, spID, grou
 	return nil
 }
 
-// assignGroupToServicePrincipal assigns a single group to a service principal
-// Note: The controller's app registration must be an owner of the target service principal's
-// app registration for this to work with Application.ReadWrite.OwnedBy permission
-func (c *Client) assignGroupToServicePrincipal(ctx context.Context, spID, groupID string) error {
-	// Check if assignment already exists
-	exists, err := c.isGroupAssigned(ctx, spID, groupID)
-	if err != nil {
-		return fmt.Errorf("failed to check existing assignment: %w", err)
-	}
-	if exists {
-		return errAssignmentAlreadyExists
-	}
-
+// createAssignment posts a new app role assignment for groupID on spID.
+func (c *Client) createAssignment(ctx context.Context, spID, groupID string) error {
 	// Create app role assignment
 	// This creates a group membership assignment to the service principal
 	requestBody := models.NewAppRoleAssignment()
@@ -234,44 +209,25 @@ func (c *Client) assignGroupToServicePrincipal(ctx context.Context, spID, groupI
 	return nil
 }
 
-// isGroupAssigned checks if a group is already assigned to a service principal
-func (c *Client) isGroupAssigned(ctx context.Context, spID, groupID string) (bool, error) {
-	// Get all assignments (filtering is not supported on this collection)
-	start := time.Now()
-	result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
-	appmetrics.ObserveAzureRequest("list_assignments", start, err)
-	if err != nil {
-		return false, err
-	}
-
-	// Check if any assignment matches our groupID
-	assignments := result.GetValue()
-	for _, assignment := range assignments {
-		principalID := assignment.GetPrincipalId()
-		if principalID != nil && principalID.String() == groupID {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// ListManagedAssignedGroupIDs returns the union of group principal IDs that are
-// currently assigned to any of the configured service principals via this
-// controller's app role.
+// ListManagedAssignments returns, for each configured service principal, the
+// set of group principal IDs assigned to it via this controller's app role.
+// Every configured service principal has an entry, even if it has no
+// assignments, so callers can detect groups missing from only some of them.
 //
 // Only assignments matching the configured appRoleID are returned. This scopes
 // the result to assignments this controller owns and avoids reporting (and
 // later removing) assignments created by other mechanisms or with other roles.
-// This set is treated as the "actual" state during full-state reconciliation.
-func (c *Client) ListManagedAssignedGroupIDs(ctx context.Context) (map[string]struct{}, error) {
+// This is treated as the "actual" state during full-state reconciliation.
+func (c *Client) ListManagedAssignments(ctx context.Context) (map[string]map[string]struct{}, error) {
 	appRoleUUID, err := uuid.Parse(c.appRoleID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse app role ID as UUID: %w", err)
 	}
 
-	assigned := make(map[string]struct{})
+	assigned := make(map[string]map[string]struct{}, len(c.servicePrincipals))
 	for _, spID := range c.servicePrincipals {
+		spAssigned := make(map[string]struct{})
+		assigned[spID] = spAssigned
 		start := time.Now()
 		result, err := c.graphClient.ServicePrincipals().ByServicePrincipalId(spID).AppRoleAssignedTo().Get(ctx, nil)
 		appmetrics.ObserveAzureRequest("list_assignments", start, err)
@@ -290,7 +246,7 @@ func (c *Client) ListManagedAssignedGroupIDs(ctx context.Context) (map[string]st
 			if principalID == nil {
 				continue
 			}
-			assigned[principalID.String()] = struct{}{}
+			spAssigned[principalID.String()] = struct{}{}
 		}
 	}
 

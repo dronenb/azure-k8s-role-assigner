@@ -151,7 +151,7 @@ func TestArgoCDReconcile_UnionsMultipleSourcesForSharedTarget(t *testing.T) {
 
 	require.NoError(t, state.reconcileDesiredState(context.Background()))
 
-	assert.ElementsMatch(t, []string{groupA, groupB, groupC}, azm.assignCalls)
+	assert.Empty(t, azm.assignCalls, "already-assigned groups must not be re-assigned")
 	assert.Empty(t, azm.removeCalls, "groups from another source sharing the target must not be pruned")
 	assert.Equal(t, map[string]struct{}{groupA: {}, groupB: {}, groupC: {}}, azm.assignedSet())
 }
