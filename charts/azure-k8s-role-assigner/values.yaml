@@ -29,6 +29,13 @@ podLabels:
 leaderElection: true
 resyncPeriod: 10m
 
+# Logging. `info` logs only real changes and failures. Use level 1 for a
+# summary per reconcile pass and level 2 to log every binding examined.
+logging:
+  level: info
+  # Use the human-readable console encoder instead of JSON (development only).
+  development: false
+
 azure:
   servicePrincipals: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx,yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
   appRoleId: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx

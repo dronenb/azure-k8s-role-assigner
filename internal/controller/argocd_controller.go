@@ -196,13 +196,13 @@ func (r *ArgoCDReconciler) buildArgoCDSourceDesiredGroupIDs(ctx context.Context,
 		argoCDKey := types.NamespacedName{Namespace: source.ResourceNamespace, Name: source.ResourceName}
 		if err := r.Get(ctx, argoCDKey, argoCD); err != nil {
 			if apierrors.IsNotFound(err) || apierrutil.IsNoMatchError(err) {
-				logger.Info("ArgoCD resource not found; desired Argo CD RBAC groups are empty", "namespace", source.ResourceNamespace, "name", source.ResourceName)
+				logger.V(1).Info("ArgoCD resource not found; desired Argo CD RBAC groups are empty", "namespace", source.ResourceNamespace, "name", source.ResourceName)
 				return r.resolveCandidateGroupIDs(ctx, candidates)
 			}
 			return nil, fmt.Errorf("failed to get ArgoCD resource %s: %w", argoCDKey.String(), err)
 		}
 		if !argoCD.GetDeletionTimestamp().IsZero() {
-			logger.Info("ArgoCD resource is deleting; desired Argo CD RBAC groups are empty", "namespace", source.ResourceNamespace, "name", source.ResourceName)
+			logger.V(1).Info("ArgoCD resource is deleting; desired Argo CD RBAC groups are empty", "namespace", source.ResourceNamespace, "name", source.ResourceName)
 			return r.resolveCandidateGroupIDs(ctx, candidates)
 		}
 	}
@@ -213,7 +213,7 @@ func (r *ArgoCDReconciler) buildArgoCDSourceDesiredGroupIDs(ctx context.Context,
 		if !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to get Argo CD RBAC ConfigMap %s: %w", cmKey.String(), err)
 		}
-		logger.Info("Argo CD RBAC ConfigMap not found; continuing with other sources", "namespace", source.ResourceNamespace, "name", source.ConfigMapName)
+		logger.V(1).Info("Argo CD RBAC ConfigMap not found; continuing with other sources", "namespace", source.ResourceNamespace, "name", source.ConfigMapName)
 	} else if cm.DeletionTimestamp.IsZero() {
 		for key, policy := range cm.Data {
 			if !isArgoCDPolicyCSVKey(key) {

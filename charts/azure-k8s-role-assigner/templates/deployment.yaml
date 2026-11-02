@@ -38,6 +38,10 @@ spec:
             - --leader-elect
             {{- end }}
             - --resync-period={{ .Values.resyncPeriod }}
+            - --zap-log-level={{ .Values.logging.level }}
+            {{- if .Values.logging.development }}
+            - --zap-devel
+            {{- end }}
           env:
             - name: AZURE_SERVICE_PRINCIPALS
               value: {{ .Values.azure.servicePrincipals | quote }}
