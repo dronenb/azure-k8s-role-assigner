@@ -69,7 +69,7 @@ ACTION_ZIZMOR_UNSECURED_ENV_VARIABLES:
 # float to whatever is newest.
 ACTION_ZIZMOR_CLI_EXECUTABLE:
   - uvx
-  - zizmor@1.31.1
+  - zizmor@1.32.0
 
 ACTION_ZIZMOR_ARGUMENTS: >-
   --persona=pedantic
