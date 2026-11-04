@@ -24,7 +24,7 @@ kos:
     # Must match .ko.yaml. GoReleaser does not read .ko.yaml, so without this
     # the release image silently falls back to ko's default base image
     # (cgr.dev/chainguard/static) while the OCI label below claims hi/static.
-    base_image: registry.access.redhat.com/hi/static@sha256:c51e17de4a96e3bd68361830ec54f3c43ffcf398b82765a1ce250bd4a0d99d1f
+    base_image: registry.access.redhat.com/hi/static@sha256:5ccc33cd2058587d048e9b0f17fbc11be72f1886ae68a1a11385fe233a8ba645
     repositories:
       - ghcr.io/dronenb/azure-k8s-role-assigner
     platforms:
