@@ -1,5 +1,5 @@
 # Check latest multi-arch index digest: skopeo inspect --raw docker://registry.access.redhat.com/hi/static:latest | skopeo manifest-digest /dev/stdin
-defaultBaseImage: registry.access.redhat.com/hi/static@sha256:c51e17de4a96e3bd68361830ec54f3c43ffcf398b82765a1ce250bd4a0d99d1f
+defaultBaseImage: registry.access.redhat.com/hi/static@sha256:cac22d5a26d90c14801f8e48cc99dcb8a08f270cdc9ebaa205ac5b29f8a3d2fa
 
 defaultPlatforms:
   - linux/amd64
