@@ -4,9 +4,9 @@
 
 - [Go](https://go.dev/dl/) (version in `go.mod`)
 - [Task](https://taskfile.dev/) (v3+)
-- [prek](https://github.com/j178/prek) (v0.5.9+)
+- [prek](https://github.com/j178/prek) (v0.5.10+)
 - [ko](https://ko.build/) (v0.19.1)
-- [Helm](https://helm.sh/) (v4.3.1)
+- [Helm](https://helm.sh/) (v4.3.2)
 - [git-cliff](https://git-cliff.org/) (v2.14.2)
 - [OpenTofu](https://opentofu.org/) (>= 1.6.0)
 - [kind](https://kind.sigs.k8s.io/) (v0.33.0+)
