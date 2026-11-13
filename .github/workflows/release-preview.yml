@@ -50,7 +50,7 @@ jobs:
 
       - name: Install Helm
         run: |
-          curl -sSfL https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz | tar xzf - -C /tmp
+          curl -sSfL https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz | tar xzf - -C /tmp
           sudo mv /tmp/linux-amd64/helm /usr/local/bin/helm
 
       - name: Determine next version
