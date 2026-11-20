@@ -41,7 +41,7 @@ jobs:
 
       - name: Set up Go
         # Check latest: TAG=$(gh api repos/actions/setup-go/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/setup-go/git/ref/tags/$TAG --jq .object.sha); echo "actions/setup-go@$SHA # $TAG"
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: false
@@ -142,7 +142,7 @@ jobs:
       - name: Upload govulncheck SARIF to GitHub
         if: always() && steps.sarif.outputs.usable == 'true'
         # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: govulncheck.sarif
 
@@ -167,7 +167,7 @@ jobs:
 
       - name: Set up Go
         # Check latest: TAG=$(gh api repos/actions/setup-go/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/setup-go/git/ref/tags/$TAG --jq .object.sha); echo "actions/setup-go@$SHA # $TAG"
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: false
@@ -223,7 +223,7 @@ jobs:
       - name: Upload Trivy image SARIF to GitHub
         if: always() && hashFiles('trivy-image-results.sarif') != ''
         # Check latest: TAG=$(gh api repos/github/codeql-action/releases/latest --jq .tag_name); REF_JSON=$(gh api repos/github/codeql-action/git/ref/tags/$TAG); TYPE=$(jq -r .object.type <<<"$REF_JSON"); SHA=$(jq -r .object.sha <<<"$REF_JSON"); if [ "$TYPE" = tag ]; then SHA=$(gh api repos/github/codeql-action/git/tags/$SHA --jq .object.sha); fi; echo "github/codeql-action/upload-sarif@$SHA # $TAG"
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: trivy-image-results.sarif
           category: trivy-image-pr
@@ -285,7 +285,7 @@ jobs:
 
       - name: Set up Go
         # Check latest: TAG=$(gh api repos/actions/setup-go/releases/latest --jq .tag_name); SHA=$(gh api repos/actions/setup-go/git/ref/tags/$TAG --jq .object.sha); echo "actions/setup-go@$SHA # $TAG"
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: false
