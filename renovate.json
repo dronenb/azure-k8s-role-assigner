@@ -45,6 +45,13 @@
       "groupSlug": "go-toolchain"
     },
     {
+      "description": "The go directive is a compatibility range, so Renovate does not update it by default. Bump it to keep the compiler and standard library on supported security patch releases.",
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["go"],
+      "matchDepTypes": ["golang"],
+      "rangeStrategy": "bump"
+    },
+    {
       "description": "Keep all GitHub Actions pins together so one PR updates the whole workflow set.",
       "matchManagers": ["github-actions"],
       "groupName": "github actions"

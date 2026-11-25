@@ -1,6 +1,6 @@
 module github.com/dronenb/azure-k8s-role-assigner
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
